@@ -134,7 +134,7 @@ class Desktop(moduleHierarchy: ModuleHierarchyTree, probeManager: ProbeManager)
         def addViewer(title: String, viewer: Viewer) =
           this.addViewer(title, viewer, pf)
 
-        val title = pf.simpleName + " " + pf.fieldType
+        val title = pf.name.mkString(".") + " " + pf.fieldType
         pf.fieldType.elementType match {
           case Float32 =>
             (pf.fieldType.dimensions, pf.fieldType.tensorOrder) match {
