@@ -376,7 +376,8 @@ class Desktop(moduleHierarchy: ModuleHierarchyTree, probeManager: ProbeManager)
 
           // Restore the viewer's saved size and position.
           frameTag \ "visualization" \ "properties" foreach (tag => viewer.xmlToProperties(tag))
-          val frame = addViewer(probedField.simpleName+" "+probedField.fieldType, viewer, probedField)
+          //val frame = addViewer(probedField.simpleName+" "+probedField.fieldType, viewer, probedField)
+          val frame = addViewer(probedField.name.mkString(".") +" "+probedField.fieldType, viewer, probedField)
           val (x, y, width, height) = RestorableState.readLayoutTag(frameTag \ "layout" head)
           frame.bounds = (x, y, width, height)
 
