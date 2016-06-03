@@ -16,11 +16,14 @@
 
 package cogdebugger.coggui3ports
 
+import scala.swing._
+
+import org.interactivemesh.scala.swing.event.InternalFrameClosed
 import org.interactivemesh.scala.swing.{InternalFrame, InternalDesktopPane}
 import org.interactivemesh.scala.swing.LayeredPane.LayerConstraints
+
 import cogdebugger.ui.fieldvisualizations.Zoomable
-import scala.swing._
-import cogdebugger.ProbeManager
+import cogdebugger.{BinPacker2D, ProbeManager}
 
 /**
  * A desktop on which to place internal frames displaying Probe data.
@@ -72,7 +75,16 @@ class ProbeDesktop(probeManager: ProbeManager)
 
   // Init the ProbeFrame tiler to the current desktop size. Lazily evaluated so
   // the desktop has actually established its size before we build the tiler.
-  lazy val tiler = new Tiler(desktop.size)
+  lazy val tiler =
+    new BinPacker2D(desktop.size) with Reactor {
+      reactions += {
+        case FramePackedEvent(src) =>
+          val rect = insert(src.size, src)
+          rect.foreach(r => src.location = (r.x, r.y))
+        case InternalFrameClosed(src, param) =>
+          remove(src)
+      }
+    }
 
   /** Subscribe the tiler to `frame` and add the frame to the desktop. */
   def addFrame(frame: InternalFrame) {
