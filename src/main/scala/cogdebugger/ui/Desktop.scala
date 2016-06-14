@@ -16,17 +16,19 @@
 
 package cogdebugger.ui
 
+import scala.language.postfixOps
 import scala.swing._
 import scala.xml.{Elem, Node}
-import scala.language.postfixOps
+
+import org.interactivemesh.scala.swing.InternalFrame
+import org.interactivemesh.scala.swing.event.InternalFrameClosing
+
 import libcog._
-import cogdebugger._
 import cogx.runtime.debugger.ProbedField
+import cogdebugger._
 import cogdebugger.coggui3ports.{FramePackedEvent, ProbeDesktop, WrappedInternalDesktopPane}
 import cogdebugger.ui.fieldvisualizations._
 import cogdebugger.ui.structure.{EdgeLeftClick, EdgeRightClick, VertexLeftClick, VertexRightClick}
-import org.interactivemesh.scala.swing.InternalFrame
-import org.interactivemesh.scala.swing.event.InternalFrameClosing
 
 /*
  * Created with IntelliJ IDEA.
@@ -175,12 +177,11 @@ class Desktop(moduleHierarchy: ModuleHierarchyTree, probeManager: ProbeManager)
     * drive it and subscribe the viewer to the probe before making the frame
     * visible.
     *
-    * All frames created by this method are listened to by the
-    * [[cogdebugger.coggui3ports.Tiler]]. As soon as they pack themselves,
-    * the Tiler will attempt to position them such they don't overlap any
-    * existing panels (note that this position is immediately overriden by
-    * restoreFrame if the viewer was added as part of the Desktop's restore
-    * process).
+    * All frames created by this method are listened to by the window tiler. As
+    * soon as they pack themselves, the tiler will attempt to position them
+    * such they don't overlap any existing panels (note that this position is
+    * immediately overridden by restoreFrame if the viewer was added as part of
+    * the Desktop's restore process).
     *
     * @param title Title for the desktop frame that will be shown
     * @param viewer The viewer to be installed in a frame and shown on the
@@ -393,9 +394,9 @@ class Desktop(moduleHierarchy: ModuleHierarchyTree, probeManager: ProbeManager)
 
 /** An InternalFrame intended to hold an instance of one of our various Viewer
   * classes. It's been augmented to keep track of its associated probes and to
-  * raise an event when it's packed itself (this event can be used by
-  * [[cogdebugger.coggui3ports.Tiler]] to intelligently size and place the
-  * frame on the desktop). */
+  * raise an event when it's packed itself (this event can be used by a window
+  * tiler to intelligently size and place the frame on the desktop).
+  */
 class DesktopFrame(
         minWidth: Int = 100,  minHeight: Int = 100,
         maxWidth: Int = 1920, maxHeight: Int = 1200)
