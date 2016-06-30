@@ -118,10 +118,12 @@ abstract class AbstractFieldMemory(fieldType: FieldType, val bufferType: BufferT
   protected def allocatePinnedDirectByteBuffer(bytes: Int,
                  commandQueue: OpenCLParallelCommandQueue): ByteBuffer =
   {
-    println("ALLOCATING PINNED BUFFER")
     val context = commandQueue.clContext
     val buf: CLBuffer[_] = context.createBuffer(bytes, Mem.ALLOCATE_BUFFER)
     val byteBuffer = commandQueue.putMapBuffer(buf, Map.READ_WRITE)
+    // Now that we have coaxed the system into creating a pinned ByteBuffer,
+    // we can throw away the CLBuffer (freeing its implied global memory allocation).
+    buf.release
     byteBuffer
   }
 

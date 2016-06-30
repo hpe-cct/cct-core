@@ -20,8 +20,8 @@ import cogx.platform.opencl.OpenCLDevice
 import cogx.platform.types.VirtualFieldRegister
 
 import scala.collection.mutable.ArrayBuffer
-
 import AllocateFieldRegisters._
+import cogx.platform.cpumemory.BufferType
 
 /**
  * Created by Dick Carter on 10/15/14.
@@ -31,10 +31,11 @@ import AllocateFieldRegisters._
   * @param device The device on which the OpenCL buffer will be allocated
   * @param firstVirtualRegister The kernel that prompted creation of this latch
   * @param seal After adding this kernel, prevent further kernel additions.
+  * @param bufferType The type of cpu memory (pinned versus pageable) to be allocated for the buffers.
   *
   * @author Dick Carter
   */
-class SharedLatch(device: OpenCLDevice, firstVirtualRegister: VirtualFieldRegister, seal: Boolean) {
+class SharedLatch(device: OpenCLDevice, firstVirtualRegister: VirtualFieldRegister, seal: Boolean, bufferType: BufferType) {
   /** The virtual registers sharing this latch */
   val virtualRegisters = ArrayBuffer[VirtualFieldRegister](firstVirtualRegister)
   /** Are more virtual registers prohibited from sharing this latch?  */
@@ -50,7 +51,7 @@ class SharedLatch(device: OpenCLDevice, firstVirtualRegister: VirtualFieldRegist
   }
 
   /** The single FieldRegister shared by this set of kernels */
-  lazy val register = allocateFieldLatch(device, firstVirtualRegister)
+  lazy val register = allocateFieldLatch(device, firstVirtualRegister, bufferType)
 
   override def toString = "latch with contents: " + virtualRegisters.mkString(", ")
 }

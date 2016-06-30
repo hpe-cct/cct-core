@@ -17,11 +17,12 @@
 package cogx.runtime.allocation
 
 import cogx.compiler.codegenerator.KernelCircuit
-import cogx.platform.opencl.{OpenCLCpuKernel, OpenCLFieldRegister, OpenCLAbstractKernel, OpenCLDevice}
+import cogx.platform.opencl.{OpenCLAbstractKernel, OpenCLDevice, OpenCLFieldRegister}
 import cogx.compiler.codegenerator.opencl.cpukernels._
-import cogx.cogmath.collection.{IdentityHashMap, IdentityHashSet}
-import cogx.platform.cpumemory.DirectBuffer
-import cogx.platform.types.{VirtualFieldRegister, AbstractKernel, FieldType}
+import cogx.cogmath.collection.IdentityHashSet
+import cogx.platform.cpumemory.{BufferType, DirectBuffer}
+import cogx.platform.types.VirtualFieldRegister
+
 import scala.collection.mutable.ArrayBuffer
 import cogx.parameters.Cog
 
@@ -60,7 +61,7 @@ object AllocateFieldRegisters {
     * @param device The device where all kernels are executed (multiple devices
     *        not yet supported).
     */
-  def apply(circuit: KernelCircuit, device: OpenCLDevice, kernelEnqueueOrder: Option[Seq[OpenCLAbstractKernel]]) {
+  def apply(circuit: KernelCircuit, device: OpenCLDevice, kernelEnqueueOrder: Option[Seq[OpenCLAbstractKernel]], bufferType: BufferType) {
     // Find recurrence or actuator drivers. They share flip-flops with the
     // recurrences or actuators they drive, so we first need to know who they are.
     val recurrenceDrivers = new IdentityHashSet[VirtualFieldRegister]
@@ -107,7 +108,7 @@ object AllocateFieldRegisters {
 
     // Analyze circuit for places where latches can be shared by kernels
     // If BufferSharing is not enabled, this lazy val will never be evaluated.
-    lazy val sharedLatch = latchAllocator.calcSharedLatches(circuit, device, requiresLatch)
+    lazy val sharedLatch = latchAllocator.calcSharedLatches(circuit, device, bufferType, requiresLatch)
 
     // Allocate and bind output registers and latches for all. Note that
     // recurrence drivers must share a flip-flop with their recurrence.
@@ -116,39 +117,44 @@ object AllocateFieldRegisters {
       _ match {
         case kernel: RecurrentFieldKernel =>
           require(kernel.outputs.length == 1)
-          allocateFlipFlop(device, kernel.outputs(0))
+          allocateFlipFlop(device, kernel.outputs(0), bufferType)
           val driver = kernel.recurrence
           require(recurrenceDrivers contains driver)
           driver.bindRegister(kernel.outputs(0).register)
+        case kernel: ConstantFieldKernel =>
+          // We ignore the specified bufferType for ConstantFieldKernels- they write their (never shared)
+          // output once at reset so no need to allocate a pinned buffer.
+          require(kernel.outputs.length == 1)
+            allocateLatch(device, kernel.outputs(0), DirectBuffer)
         case kernel: OpenCLAbstractKernel =>
           kernel.outputs.foreach( virtualRegister =>
             if (!recurrenceDrivers.contains(virtualRegister))
-              allocateLatch(device, virtualRegister)
+              allocateLatch(device, virtualRegister, bufferType)
           )
       }
     }
 
     /** Allocate and bind a flip-flop to `virtualRegister`. */
-    def allocateFlipFlop(device: OpenCLDevice, virtualRegister: VirtualFieldRegister) {
+    def allocateFlipFlop(device: OpenCLDevice, virtualRegister: VirtualFieldRegister, bufferType: BufferType) {
         // See class comments about pinned buffers
-        val buffer0 = device.createFieldBuffer(virtualRegister.fieldType, DirectBuffer)
-        val buffer1 = device.createFieldBuffer(virtualRegister.fieldType, DirectBuffer)
+        val buffer0 = device.createFieldBuffer(virtualRegister.fieldType, bufferType)
+        val buffer1 = device.createFieldBuffer(virtualRegister.fieldType, bufferType)
         val register = new OpenCLFieldRegister(buffer0, buffer1)
         virtualRegister.bindRegister(register)
     }
 
     /** Allocate and bind a latch to `virtualRegister`. */
-    def allocateLatch(device: OpenCLDevice, virtualRegister: VirtualFieldRegister) {
+    def allocateLatch(device: OpenCLDevice, virtualRegister: VirtualFieldRegister, bufferType: BufferType) {
       val register =
         if (BufferSharing)
           sharedLatch.get(virtualRegister) match {
             case Some(latch) => latch.register
-            case None => // No latch?  Must be a constant input
-              allocateFieldLatch(device, virtualRegister)
+            case None => // No latch?  Must be a DAG leaf node like a constant input or sensor.
+              allocateFieldLatch(device, virtualRegister, bufferType)
           }
         else {
           // See class comments about pinned buffers
-          allocateFieldLatch(device, virtualRegister)
+          allocateFieldLatch(device, virtualRegister, bufferType)
         }
       virtualRegister.bindRegister(register)
     }
@@ -156,9 +162,9 @@ object AllocateFieldRegisters {
 
 
   /** Allocate a FieldRegister and OpenCL Buffer for this kernel on the device */
-  def allocateFieldLatch(device: OpenCLDevice, virtualRegister: VirtualFieldRegister) = {
+  def allocateFieldLatch(device: OpenCLDevice, virtualRegister: VirtualFieldRegister, bufferType: BufferType) = {
     val buffer =
-      device.createFieldBuffer(virtualRegister.fieldType, DirectBuffer)
+      device.createFieldBuffer(virtualRegister.fieldType, bufferType)
     new OpenCLFieldRegister(buffer)
   }
 

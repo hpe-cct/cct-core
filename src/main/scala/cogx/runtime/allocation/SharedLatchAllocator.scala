@@ -18,21 +18,25 @@ package cogx.runtime.allocation
 
 import cogx.cogmath.collection.IdentityHashMap
 import cogx.compiler.codegenerator.KernelCircuit
+import cogx.platform.cpumemory.BufferType
 import cogx.platform.opencl.OpenCLDevice
 import cogx.platform.types.VirtualFieldRegister
 
-/**
-* Created by carteric on 10/15/14.
-*/
+/** An interface for allocators of the (potentially shared) OpenCL Buffers.
+  *
+  * @author Dick Carter
+  */
 trait SharedLatchAllocator {
-  /**
-   *
-   * @param kernelCircuit The hypercircuit of kernels that output the virtual registers to allocate latches for.
-   * @param device The device being scheduled for (so the latches can allocate their OpenCL buffers eventually
-   * @param requiresLatch A function telling this routine which latches can share latches
-   * @return  A map from each virtual register of the circuit to its shared latch
-   */
+  /** Map the virtual registers to potentially shared OpenCL Buffers.
+    *
+    * @param kernelCircuit The hypercircuit of kernels that output the virtual registers to allocate latches for.
+    * @param device The device being scheduled for (so the latches can allocate their OpenCL buffers eventually.
+    * @param bufferType The type of cpu memory (pinned versus pageable) to be allocated for the buffers.
+    * @param requiresLatch A function telling this routine which latches can share latches.
+    * @return  A map from each virtual register of the circuit to its shared latch.
+    */
   def calcSharedLatches(kernelCircuit: KernelCircuit,
                         device: OpenCLDevice,
+                        bufferType: BufferType,
                         requiresLatch: (VirtualFieldRegister) => Boolean): IdentityHashMap[VirtualFieldRegister, SharedLatch]
 }

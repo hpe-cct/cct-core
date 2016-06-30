@@ -23,7 +23,9 @@ import cogx.platform.cpumemory._
 import com.jogamp.opencl.CLMemory.Mem
 import cogx.platform.types._
 import cogx.platform.types.ElementTypes._
-import com.jogamp.opencl.CLImageFormat.{ChannelType, ChannelOrder}
+import com.jogamp.opencl.CLImageFormat.{ChannelOrder, ChannelType}
+import cogx.platform.opencl.OpenCLEventCache._
+import com.jogamp.opencl.CLException.CLMemObjectAllocationFailureException
 
 /** OpenCL buffers that hold fields. Each field consists of an optional
   * CPU (host) part and a GPU (device) part. See base class for a more
@@ -31,7 +33,7 @@ import com.jogamp.opencl.CLImageFormat.{ChannelType, ChannelOrder}
   *
   * @param fieldType Type of the field held in the buffer.
   * @param commandQueue OpenCL command queue available to this buffer.
-  * @param bufferType The type of buffer to be allocated.
+  * @param requestedBufferType The type of buffer to attempt to allocate.
   * @param fieldMemoryAllocator The allocator to use for the cpu-side memory.
   *
   * @author Greg Snider and Dick Carter
@@ -40,7 +42,7 @@ private[cogx]
 class OpenCLBuffer[T <: AbstractFieldMemory] private[opencl]
   (val fieldType: FieldType,
    commandQueue: OpenCLParallelCommandQueue,
-   bufferType: BufferType,
+   requestedBufferType: BufferType,
    fieldMemoryAllocator: FieldMemory)
         extends AbstractFieldBuffer[T]
 {
@@ -67,15 +69,30 @@ class OpenCLBuffer[T <: AbstractFieldMemory] private[opencl]
   /** Memory on the CPU side, lazily instantiated. */
   private var _cpuMemory = null.asInstanceOf[T]
 
+  /** Actual cpu memory type: heap, non-heap pageable or non-heap pinned. */
+  private var bufferType = requestedBufferType
+
   private def clContext = commandQueue.clContext
 
   /** Memory on the CPU side, lazily instantiated. */
   def cpuMemory: T = clMemoryLock.synchronized {
     if (_cpuMemory == null) {
-      _cpuMemory = bufferType match {
+      _cpuMemory = requestedBufferType match {
         case PinnedDirectBuffer =>
           require(commandQueue != null, "need command queue for pinned buffer")
-          fieldMemoryAllocator.pinned(fieldType, commandQueue).asInstanceOf[T]
+          try {
+            fieldMemoryAllocator.pinned(fieldType, commandQueue).asInstanceOf[T]
+          }
+          catch {
+            case e: CLMemObjectAllocationFailureException =>
+              // The following reallocation may not be particularly helpful- the first thing the driver
+              // will do is try to allocate pinned memory, and that will probably fail.  Also, the
+              // exception may be due to exhaustion of GPU global memory, and resorting to
+              // pageable direct memory will only defer the gpu memory allocation until first use.
+              println("Downgrading from pinned to pageable memory for buffer " + _deviceBuffer)
+              bufferType = DirectBuffer
+              fieldMemoryAllocator.direct(fieldType).asInstanceOf[T]
+          }
         case DirectBuffer =>
           fieldMemoryAllocator.direct(fieldType).asInstanceOf[T]
         case IndirectBuffer =>
@@ -213,34 +230,74 @@ class OpenCLBuffer[T <: AbstractFieldMemory] private[opencl]
     deviceBuffer.isReleased
   }
 
-  /** Copy field data from cpuMemory to the GPU memory, blocking until
-    * completion.
-    */
+  /** An CLEventList to hold completion events for asynchronous CPU -> GPU data transfers. */
+  private lazy val copyToGPUEventList = new CLEventList(CLEventFactory, 1)
+
+  /** Copy field data from cpuMemory to the GPU memory, blocking until completion. */
   private def copyToGPU() {
     // touch cpuMemory to make sure it's instantiated
     cpuMemory
-    commandQueue.putWriteBuffer(deviceBuffer.asInstanceOf[CLBuffer[_]])
+    // To achieve simultaneous bidirectional transfers, one must use both pinned buffers and the
+    // non-blocking form of the putWriteBuffer call (even though the completion event is waited for immediately).
+    // We only use the non-blocking putWriteBuffer call with pinned buffers since the runtime was
+    // seen to deadlock when used with pageable direct buffers.  One cure for the deadlock was to LD_PRELOAD
+    // the "libsleep.so" library which forces the polling NVIDIA driver to sleep periodically.  One theory then
+    // on the cause of the hanging is that an Actor thread of the runtime is scheduled to the same core
+    // as a presumably higher-priority NVIDIA driver thread that polls continuously.
+    if (bufferType == PinnedDirectBuffer) {
+      commandQueue.putWriteBufferAsync(deviceBuffer.asInstanceOf[CLBuffer[_]], copyToGPUEventList)
+      copyToGPUEventList.waitForEvents()
+      checkStatus(copyToGPUEventList, "copyToGPU")
+      copyToGPUEventList.release()
+    }
+    else
+      commandQueue.putWriteBuffer(deviceBuffer.asInstanceOf[CLBuffer[_]])
   }
 
-  /** Copy field data to cpuMemory from the GPU memory, blocking until
-    * completion.
-    */
+  /** An CLEventList to hold completion events for asynchronous GPU -> CPU data transfers. */
+  private lazy val copyFromGPUEventList = new CLEventList(CLEventFactory, 1)
+
+  /** Check the completion status of the first event in `eventList`. */
+  private def checkStatus(eventlist: CLEventList, routineName: String) {
+    val event = eventlist.getEvent(0)
+    event.getStatus match {
+      case CLEvent.ExecutionStatus.ERROR =>
+        throw new RuntimeException(s"$toString $routineName fails with error code ${event.getStatusCode}")
+      case CLEvent.ExecutionStatus.COMPLETE =>
+      case other =>
+        throw new RuntimeException(s"$toString $routineName  sees unexpected status: $other (expecting COMPLETE).")
+    }
+  }
+
+  /** Copy field data to cpuMemory from the GPU memory, blocking until completion. */
   private def copyFromGPU() {
     // touch cpuMemory to make sure it's instantiated
     cpuMemory
-    commandQueue.putReadBuffer(deviceBuffer.asInstanceOf[CLBuffer[_]])
+    // To achieve simultaneous bidirectional transfers, one must use both pinned buffers and the
+    // non-blocking form of the putReadBuffer call (even though the completion event is waited for immediately).
+    // We only use the non-blocking putReadBuffer call with pinned buffers since the runtime was
+    // seen to deadlock when used with pageable direct buffers.  See copyToGPU() for further comments.
+    if (bufferType == PinnedDirectBuffer) {
+      commandQueue.putReadBufferAsync(deviceBuffer.asInstanceOf[CLBuffer[_]], copyFromGPUEventList)
+      copyFromGPUEventList.waitForEvents()
+      checkStatus(copyFromGPUEventList, "copyFromGPU")
+      copyFromGPUEventList.release()
+    }
+    else
+      commandQueue.putReadBuffer(deviceBuffer.asInstanceOf[CLBuffer[_]])
   }
 
-  /** Copy image from cpuMemory to the GPU memory, blocking until
-    * completion.
-    */
+  // The copying of image memories is treated a bit differently than buffer memories in that the blocking
+  // form of the copy is never used withing the OpenCLParallelCommandQueue implementation.  The reason for
+  // this is that the JOCL image copy interface is not thread safe and needs synchronization barriers.  Thus,
+  // we use the non-blocking form of the copy in all cases (i.e. for both pinned and pageable memories).
+
+  /** Copy image from cpuMemory to the GPU memory, blocking until completion. */
   private def copyImage2dToGPU(blocking: Boolean = true) {
     commandQueue.putWriteImage2d(deviceBuffer.asInstanceOf[CLImage2d[_]])
   }
 
-  /** Copy field data to cpuMemory from the GPU memory, blocking until
-    * completion.
-    */
+  /** Copy field data to cpuMemory from the GPU memory, blocking until completion. */
   private def copyImage2dFromGPU(blocking: Boolean = true) {
     commandQueue.putReadImage2d(deviceBuffer.asInstanceOf[CLImage2d[_]])
   }

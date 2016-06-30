@@ -36,20 +36,19 @@ import cogx.platform.opencl.OpenCLEventCache._
   * which are used by CPU kernels, and asynchronous compute requests used
   * by GPU kernels.
   *
-  * NOTE: CLCommandQueues in OpenCL 1.1 are thread-safe, so no synchronized
-  * needed here on the methods.
-  *
   * @param device The device that the command queue controls.
   * @param profile Enable kernel profiling.
   *
-  * @author Greg Snider
+  * @author Greg Snider and Dick Carter
   */
 private[cogx]
 class OpenCLParallelCommandQueue (device: OpenCLDevice, val profile: Boolean = true) {
   /** Enable out-of-order execution in raw command queues. */
   val outOfOrderExecution = Cog.outOfOrderExecution
-  /** Command queue for synchronous reads and writes. */
-  private val readWriteQueue = createCommandQueue()
+  /** Command queue for GPU -> CPU copies (i.e. GPU reads). */
+  private val readQueue = createCommandQueue()
+  /** Command queue for CPU -> GPU copies (i.e. GPU writes). */
+  private val writeQueue = createCommandQueue()
   /** Command queue for asynchronous kernel execution. There will be more... */
   private val executionQueue = createCommandQueue()
   /** The CLContext in which the CommandQueue lives. */
@@ -57,8 +56,10 @@ class OpenCLParallelCommandQueue (device: OpenCLDevice, val profile: Boolean = t
 
   /** Release the commandQueue. */
   def release() {
-    if (!readWriteQueue.isReleased)
-      readWriteQueue.release()
+    if (!readQueue.isReleased)
+      readQueue.release()
+    if (!writeQueue.isReleased)
+      writeQueue.release()
     if (!executionQueue.isReleased)
       executionQueue.release()
   }
@@ -67,19 +68,21 @@ class OpenCLParallelCommandQueue (device: OpenCLDevice, val profile: Boolean = t
     * functionality. */
   def finish() {
     executionQueue.finish()
-    readWriteQueue.finish()
+    readQueue.finish()
+    writeQueue.finish()
   }
 
   /** Ensure that all enqueued commands will be submitted to the device, but
     * don't wait for their completion (or their submission for that matter). */
   def flush() {
     executionQueue.flush()
-    readWriteQueue.flush()
+    readQueue.flush()
+    writeQueue.flush()
   }
 
   /** Synchronous, blocking call to get the byte buffer for `buffer`. */
-  def putMapBuffer(buffer: CLBuffer[_], flag: CLMemory.Map): ByteBuffer = readWriteQueue.synchronized {
-    readWriteQueue.putMapBuffer(buffer, flag, true)
+  def putMapBuffer(buffer: CLBuffer[_], flag: CLMemory.Map): ByteBuffer = readQueue.synchronized {
+    readQueue.putMapBuffer(buffer, flag, true)
   }
 
   /** Launch 1D `kernel` asynchronously when `condition` triggers, triggering
@@ -157,25 +160,33 @@ class OpenCLParallelCommandQueue (device: OpenCLDevice, val profile: Boolean = t
 
   /** Blocking write of a CLBuffer. */
   def putWriteBuffer(deviceBuffer: CLBuffer[_]) {
-    readWriteQueue.putWriteBuffer(deviceBuffer, true)
+    writeQueue.putWriteBuffer(deviceBuffer, true)
   }
 
-  /** Read a CLBuffer (Device --> CPU).
+  /** Non-Blocking write of a CLBuffer. */
+  def putWriteBufferAsync(deviceBuffer: CLBuffer[_], outputEvent: CLEventList): Unit = {
+    writeQueue.putWriteBuffer(deviceBuffer, false, outputEvent)
+  }
+
+  /** Read a CLBuffer (Device --> CPU), returning when the read is complete.
     *
     * @param deviceBuffer Buffer which will be copied to host.
-    * @param outputEvent If non-null, this implies an asynchronous read--this
-    *        will be filled in with the event that will be triggered when the read
-    *        is complete. If null or missing, this is a synchronous read which
-    *        will block until complete.
     */
-  def putReadBuffer(deviceBuffer: CLBuffer[_], outputEvent: CLEventList = null) {
-    if (outputEvent == null) {
+  def putReadBuffer(deviceBuffer: CLBuffer[_]) {
     // Blocking read
-      readWriteQueue.putReadBuffer(deviceBuffer, true)
-    } else {
-      // Asynchronouos read
-      readWriteQueue.putReadBuffer(deviceBuffer, false, outputEvent)
-    }
+    readQueue.putReadBuffer(deviceBuffer, true)
+  }
+
+  /** Read a CLBuffer (Device --> CPU), returning immediately (i.e. asynchronously to the read completion).
+    *
+    * @param deviceBuffer Buffer which will be copied to host.
+    * @param outputEvent Perform an asynchronous read--this
+    *        will be filled in with the event that will be triggered when the read
+    *        is complete.
+    */
+  def putReadBufferAsync(deviceBuffer: CLBuffer[_], outputEvent: CLEventList): Unit = {
+    // Asynchronouos read
+    readQueue.putReadBuffer(deviceBuffer, false, outputEvent)
   }
 
   /** Write a CLImage2d (CPU -> Device) asynchronously (returns immediately).
@@ -190,8 +201,21 @@ class OpenCLParallelCommandQueue (device: OpenCLDevice, val profile: Boolean = t
     *        will be triggered when the write is complete.
     */
   def putWriteImage2dAsync(deviceBuffer: CLImage2d[_],
-                          outputEvent: CLEventList): Unit = readWriteQueue.synchronized {
-    readWriteQueue.putWriteImage(deviceBuffer, false, outputEvent)
+                          outputEvent: CLEventList): Unit = writeQueue.synchronized {
+    writeQueue.putWriteImage(deviceBuffer, false, outputEvent)
+  }
+
+  private def checkAndReleaseEvent(event: CLEvent, routineName: String): Unit = {
+    event.getStatus match {
+      case CLEvent.ExecutionStatus.ERROR =>
+        throw new RuntimeException(toString + " " + routineName +
+          " fails with error code " + event.getStatusCode)
+      case CLEvent.ExecutionStatus.COMPLETE =>
+      case other =>
+        throw new RuntimeException(toString + " " + routineName + "sees unexpected status for " + toString +
+          ": " + other + " (expecting COMPLETE)")
+    }
+    event.release()
   }
 
   /** Write a CLImage2d (CPU -> Device) synchronously (blocks until complete).
@@ -205,16 +229,7 @@ class OpenCLParallelCommandQueue (device: OpenCLDevice, val profile: Boolean = t
     putWriteImage2dAsync(deviceBuffer, eventList)
     val event = eventList.getEvent(0)
     eventList.waitForEvents()
-    event.getStatus match {
-      case CLEvent.ExecutionStatus.ERROR =>
-        throw new RuntimeException(toString + " putWriteImage2d" +
-                " fails with error code " + event.getStatusCode)
-      case CLEvent.ExecutionStatus.COMPLETE =>
-      case other =>
-        throw new RuntimeException(toString + "Unexpected status for " + toString +
-                ": " + other + " (expecting COMPLETE)")
-    }
-    event.release()
+    checkAndReleaseEvent(event, "putWriteImage2d")
   }
 
   /** Read a CLImage2d (Device --> CPU) asynchronously (returns immediately).
@@ -230,8 +245,8 @@ class OpenCLParallelCommandQueue (device: OpenCLDevice, val profile: Boolean = t
     *        will be triggered when the read is complete.
     */
   def putReadImage2dAsync(deviceBuffer: CLImage2d[_],
-                          outputEvent: CLEventList): Unit = readWriteQueue.synchronized {
-    readWriteQueue.putReadImage(deviceBuffer, false, outputEvent)
+                          outputEvent: CLEventList): Unit = readQueue.synchronized {
+    readQueue.putReadImage(deviceBuffer, false, outputEvent)
   }
 
   /** Read a CLImage2d (Device --> CPU).  Blocks until read is complete.
@@ -245,16 +260,7 @@ class OpenCLParallelCommandQueue (device: OpenCLDevice, val profile: Boolean = t
       putReadImage2dAsync(deviceBuffer, eventList)
       val event = eventList.getEvent(0)
       eventList.waitForEvents()
-      event.getStatus match {
-        case CLEvent.ExecutionStatus.ERROR =>
-          throw new RuntimeException(toString + " putReadImage2d" +
-                  " fails with error code " + event.getStatusCode)
-        case CLEvent.ExecutionStatus.COMPLETE =>
-        case other =>
-          throw new RuntimeException(toString + "Unexpected status for " + toString +
-                  ": " + other + " (expecting COMPLETE)")
-      }
-      event.release()
+      checkAndReleaseEvent(event, "putReadImage2d")
   }
 
   /** Internal creation of a CLCommandQueue. */

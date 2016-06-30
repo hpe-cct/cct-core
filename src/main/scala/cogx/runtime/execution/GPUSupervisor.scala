@@ -22,8 +22,9 @@ import cogx.utilities.AnnotateThread
 import com.jogamp.opencl.CLEvent
 import cogx.runtime.allocation.AllocateFieldRegisters
 import cogx.platform.types.AbstractKernel
+
 import scala.collection.mutable
-import cogx.platform.cpumemory.AbstractFieldMemory
+import cogx.platform.cpumemory.{AbstractFieldMemory, DirectBuffer, PinnedDirectBuffer}
 import cogx.runtime.FieldID
 import cogx.runtime.resources.GPU
 
@@ -64,6 +65,13 @@ class GPUSupervisor(device: OpenCLDevice, gpu: GPU)
   /** Output events at "roots" that will be triggered when computation is done.*/
   private val rootOutputTriggers = new Array[CLEvent](rootKernels.length)
 
+  /** Should the cpu portion of the buffers (if needed) be allocated in pinned memory. */
+  private val bufferType =
+    if (Cog.pinnedBuffers)
+      PinnedDirectBuffer
+    else
+      DirectBuffer
+
   /** Pre start initialization and allocation. */
   def preStart() {
 
@@ -71,7 +79,7 @@ class GPUSupervisor(device: OpenCLDevice, gpu: GPU)
     AnnotateThread(getClass.getSimpleName + "-" + gpu.deviceIndex)
 
     // Allocate registers for the fields.
-    AllocateFieldRegisters(circuit, device, Some(orderedKernels))
+    AllocateFieldRegisters(circuit, device, Some(orderedKernels), bufferType)
 
     // Install the kernels.
     for (kernel <- orderedKernels)

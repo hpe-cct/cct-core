@@ -19,6 +19,7 @@ package cogx.runtime.allocation
 import cogx.cogmath.collection.{IdentityHashSet, IdentityHashMap}
 import cogx.compiler.codegenerator.KernelCircuit
 import cogx.parameters.Cog
+import cogx.platform.cpumemory.BufferType
 import cogx.platform.opencl.{OpenCLDeviceKernel, OpenCLAbstractKernel, OpenCLCpuKernel, OpenCLDevice}
 import cogx.platform.types.{AbstractKernel, FieldType, VirtualFieldRegister}
 
@@ -37,7 +38,7 @@ class InOrderSharedLatchAllocator(kernelEnqueueOrder: Seq[OpenCLAbstractKernel])
   /** Process the kernel circuit from inputs to outputs, looking for latch
     * sharing opportunities.
     */
-  def calcSharedLatches(circuit: KernelCircuit, device: OpenCLDevice,
+  def calcSharedLatches(circuit: KernelCircuit, device: OpenCLDevice, bufferType: BufferType,
                                 requiresLatch: (VirtualFieldRegister) => Boolean) = {
     /** Should we alert the user that earlier versions of this allocator mishandled their model? */
 //    val WarnAboutMishandledModels = true
@@ -212,10 +213,10 @@ class InOrderSharedLatchAllocator(kernelEnqueueOrder: Seq[OpenCLAbstractKernel])
                   latch.addVirtualRegister(virtualRegister, sealLatch(virtualRegister))
                   buffersRemoved += 1
                 case None => // No latch of proper size can be used; make a new one
-                  sizedLatches += new SharedLatch(device, virtualRegister, sealLatch(virtualRegister))
+                  sizedLatches += new SharedLatch(device, virtualRegister, sealLatch(virtualRegister), bufferType)
               }
             case None => // No latch of proper size exists, allocate a new one
-              val newLatch = new SharedLatch(device, virtualRegister, sealLatch(virtualRegister))
+              val newLatch = new SharedLatch(device, virtualRegister, sealLatch(virtualRegister), bufferType)
               latches.put(virtualRegister.fieldType, ArrayBuffer(newLatch))
           }
         }

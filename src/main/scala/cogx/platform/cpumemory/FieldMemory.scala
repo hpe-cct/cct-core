@@ -62,7 +62,7 @@ class FieldMemory private {
   private[cogx]
   def pinned(fieldType: FieldType, commandQueue: OpenCLParallelCommandQueue) =
   {
-    throw new Exception("not done yet")
+    allocate(fieldType, PinnedDirectBuffer, commandQueue)
   }
 
   /** Allocate an AbstractFieldMemory from the pool.
@@ -73,7 +73,7 @@ class FieldMemory private {
     * @return Allocated memory.
     */
   private def allocate(fieldType: FieldType,
-                       bufferType: BufferType): AbstractFieldMemory =
+                       bufferType: BufferType, commandQueue: OpenCLParallelCommandQueue = null): AbstractFieldMemory =
   {
     var memory: AbstractFieldMemory = null
     val pool = bufferType match {
@@ -88,24 +88,24 @@ class FieldMemory private {
       if (bucket.size == 0) {
         val memory =     fieldType.elementType match {
           case Uint8Pixel =>
-            new ColorFieldMemory(fieldType, bufferType)
+            new ColorFieldMemory(fieldType, bufferType, commandQueue)
           case Complex32 =>
             fieldType.tensorShape.dimensions match {
               case 0 =>
-                new ComplexFieldMemory(fieldType, bufferType)
+                new ComplexFieldMemory(fieldType, bufferType, commandQueue)
               case 1 =>
-                new ComplexVectorFieldMemory(fieldType, bufferType)
+                new ComplexVectorFieldMemory(fieldType, bufferType, commandQueue)
               case x =>
                 throw new RuntimeException("unsupported tensor dimensions: " + x)
             }
           case Float32 =>
             fieldType.tensorShape.dimensions match {
               case 0 =>
-                new ScalarFieldMemory(fieldType, bufferType)
+                new ScalarFieldMemory(fieldType, bufferType, commandQueue)
               case 1 =>
-                new VectorFieldMemory(fieldType, bufferType)
+                new VectorFieldMemory(fieldType, bufferType, commandQueue)
               case 2 =>
-                new MatrixFieldMemory(fieldType, bufferType)
+                new MatrixFieldMemory(fieldType, bufferType, commandQueue)
               case x =>
                 throw new RuntimeException("unsupported tensor dimensions: " + x)
             }
