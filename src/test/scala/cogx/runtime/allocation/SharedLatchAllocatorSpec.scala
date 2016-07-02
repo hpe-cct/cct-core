@@ -42,7 +42,8 @@ class SharedLatchAllocatorSpec extends FunSuite
     */
   test("combination of CPU and GPU kernels") {
     val Size = 8000
-    val FilterSize = 63
+    // A FilterSize of 63 was seen to trip the slow kernel timeout on Windows (> 2 seconds by default).
+    val FilterSize = 31
 
     // A simple User function that writes the corner output points of a 2D Field.  It's normally not a
     // good idea to leave some of the output values unwritten, but this way the kernel executes quickly.
