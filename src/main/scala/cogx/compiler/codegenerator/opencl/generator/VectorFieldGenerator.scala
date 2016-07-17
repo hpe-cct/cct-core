@@ -18,7 +18,7 @@ package cogx.compiler.codegenerator.opencl.generator
 
 import cogx.compiler.codegenerator.opencl.hyperkernels.discretecosinetransform.DCT2DHyperKernel
 import cogx.compiler.parser.op._
-import cogx.platform.opencl.OpenCLPlatformParams
+import cogx.platform.opencl.OpenCLKernelCodeGenParams
 import cogx.platform.types.{VirtualFieldRegister, ConvolutionSmallTensorUsePolicy, ConvolutionFFTUsePolicy, AbstractKernel}
 import cogx.compiler.parser.op.{BinaryConstOpcode, BinaryOpcode, UnaryOpcode, ConstantOp}
 import cogx.compiler.codegenerator.opencl.cpukernels._
@@ -59,13 +59,13 @@ object VectorFieldGenerator {
     *
     * @param field The field which will have a kernel generated for it.
     * @param inputs Inputs to the operation.
-    * @param platformParams A bundle of platform parameters that affect kernel code generation and optimization.
+    * @param codeGenParams A bundle of platform parameters that affect kernel code generation and optimization.
     * @param fftUse policy for FFT use in fast convolution.
     * @param smallTensorUse policy for when to use SmallTensorAddressing in convolution.
     * @return OpenCL kernel implementing the operation.
     */
   def apply(field: Field, inputs: Array[VirtualFieldRegister],
-            platformParams: OpenCLPlatformParams,
+            codeGenParams: OpenCLKernelCodeGenParams,
             fftUse: ConvolutionFFTUsePolicy,
             smallTensorUse: ConvolutionSmallTensorUsePolicy): AbstractKernel =
   {
@@ -153,19 +153,19 @@ object VectorFieldGenerator {
       case op: RandomOp =>
         RandomHyperKernel(inputs(0), op)
       case FieldReduceMaxOp =>
-        ScalarReduceHyperKernel(inputs(0), opcode, fieldType, platformParams.warpSize)
+        ScalarReduceHyperKernel(inputs(0), opcode, fieldType, codeGenParams.warpSize)
       case FieldReduceMinOp =>
-        ScalarReduceHyperKernel(inputs(0), opcode, fieldType, platformParams.warpSize)
+        ScalarReduceHyperKernel(inputs(0), opcode, fieldType, codeGenParams.warpSize)
       case FieldReduceSumOp =>
-        ScalarReduceHyperKernel(inputs(0), opcode, fieldType, platformParams.warpSize)
+        ScalarReduceHyperKernel(inputs(0), opcode, fieldType, codeGenParams.warpSize)
       case WinnerTakeAllOp =>
-        WinnerTakeAllHyperKernel(inputs(0), WinnerTakeAllOp, fieldType, platformParams.warpSize)
+        WinnerTakeAllHyperKernel(inputs(0), WinnerTakeAllOp, fieldType, codeGenParams.warpSize)
       case MaxPositionOp =>
-        WinnerTakeAllHyperKernel(inputs(0), MaxPositionOp, fieldType, platformParams.warpSize)
+        WinnerTakeAllHyperKernel(inputs(0), MaxPositionOp, fieldType, codeGenParams.warpSize)
 //      case ImageToFieldOp =>
 //        new Color2DToFieldKernel(inputs(0), fieldType)
       case MatrixTransformVectorOp =>
-        MatrixVectorTransformHyperKernel(inputs, MatrixTransformVectorOp, fieldType, platformParams.maxConstantBufferSize)
+        MatrixVectorTransformHyperKernel(inputs, MatrixTransformVectorOp, fieldType, codeGenParams.maxConstantBufferSize)
       case Transpose2DOp =>
         TransposeHyperKernel(inputs, Transpose2DOp, fieldType)
       case SolveOp =>
@@ -200,9 +200,9 @@ object VectorFieldGenerator {
       case op: ConvolveTiledOp =>
         ConvolveTiledHyperKernel(inputs, op, fieldType)
       case op: ConvolveToSmallFieldTiledOp =>
-        ConvolveToSmallFieldPipelinedTiledHyperKernel(inputs, op, fieldType, platformParams)
+        ConvolveToSmallFieldPipelinedTiledHyperKernel(inputs, op, fieldType, codeGenParams)
       case op: ConvolveOp =>
-        DynamicConvolutionGenerator(inputs, op, fieldType, fftUse, smallTensorUse, platformParams)
+        DynamicConvolutionGenerator(inputs, op, fieldType, fftUse, smallTensorUse, codeGenParams)
       case op: ComplexToRealOp =>
         ComplexToRealHyperKernel(inputs, op, fieldType)
       case NonMaximumSuppressionOp =>

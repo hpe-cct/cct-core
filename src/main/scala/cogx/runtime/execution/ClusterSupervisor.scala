@@ -92,14 +92,22 @@ class ClusterSupervisor(circuit: KernelCircuit, platform: OpenCLPlatform, mode: 
   /** In accumulating errors from ComputeNodeSupervisors, remember just one (the last). */
   var lastError: Option[Exception] = None
 
+  /** Circuit initialization error, saved to be passed back in response to the first user command. */
+  var initError: Option[Exception] = None
+
   /** Message handling. */
   def receive = {
     case Step =>
-      requestor = sender
-      require(busyChildren == 0, "protocol failure: Step request while busy")
-      lastError = None
-      busyChildren = nodeSupervisors.length
-      nodeSupervisors.foreach(_ ! Step)
+      initError match {
+        case Some(e) =>
+          sender ! StepDone(initError)
+        case None =>
+          requestor = sender
+          require(busyChildren == 0, "protocol failure: Step request while busy")
+          lastError = None
+          busyChildren = nodeSupervisors.length
+          nodeSupervisors.foreach(_ ! Step)
+      }
 
     case StepDone(e) =>
       busyChildren -= 1
@@ -109,11 +117,16 @@ class ClusterSupervisor(circuit: KernelCircuit, platform: OpenCLPlatform, mode: 
         requestor ! StepDone(lastError)
 
     case Reset =>
-      requestor = sender
-      require(busyChildren == 0, "protocol failure: Reset request while busy")
-      lastError = None
-      busyChildren = nodeSupervisors.length
-      nodeSupervisors.foreach(_ ! Reset)
+      initError match {
+        case Some(e) =>
+          sender ! ResetDone(initError)
+        case None =>
+          requestor = sender
+          require(busyChildren == 0, "protocol failure: Reset request while busy")
+          lastError = None
+          busyChildren = nodeSupervisors.length
+          nodeSupervisors.foreach(_ ! Reset)
+      }
 
     case ResetDone(e) =>
       busyChildren -= 1
@@ -123,20 +136,34 @@ class ClusterSupervisor(circuit: KernelCircuit, platform: OpenCLPlatform, mode: 
         requestor ! ResetDone(lastError)
 
     case msg @ ProbeField(id) =>
-      val child = kernelIDToChild.get(id.kernelID) match {
-        case Some(kernel) => kernel
-        case None => throw new RuntimeException(s"Internal compiler error: probed field $id is unprobeable.")
+      initError match {
+        case Some(e) =>
+          sender ! initError.get
+        case None =>
+          val child = kernelIDToChild.get(id.kernelID) match {
+            case Some(kernel) => kernel
+            case None => throw new RuntimeException(s"Internal compiler error: probed field $id is unprobeable.")
+          }
+          child forward ProbeField(id)
       }
-      child forward ProbeField(id)
 
     case msg @ FieldData(id, data) =>
-      val child = kernelIDToChild(id.kernelID)
-      //child ! ProbeData(id, data)
-      child forward msg
+      initError match {
+        case Some(e) =>
+          sender ! initError.get
+        case None =>
+          val child = kernelIDToChild(id.kernelID)
+          child forward msg
+      }
 
     case DebugPrint =>
       println("+++ ClusterSupervisor: DebugPrint")
-      nodeSupervisors.foreach(_ ! DebugPrint)
+      initError match {
+        case Some(e) =>
+          println(s"Initialization failed with exception $e")
+        case None =>
+          nodeSupervisors.foreach(_ ! DebugPrint)
+      }
 
     case x =>
       throw new Exception("unexpected message: " + x)
@@ -146,28 +173,29 @@ class ClusterSupervisor(circuit: KernelCircuit, platform: OpenCLPlatform, mode: 
   override def preStart() {
     // Add Cog function to thread name to aide thread probing tools like jconsole
     AnnotateThread(getClass.getSimpleName)
-
-//    val mode: AllocationMode = Option(System.getProperty("cog.device")) match {
-//      case Some("all") =>
-//        Console.err.println("[AllocateCluster] Warning: Operating in experimental multi-GPU mode.")
-//        AllocationMode.MultiGPU
-//      case _ =>
-//        AllocationMode.SingleGPU(System.getProperty("cog.device","0").toInt) // Default mode
-//    }
-    val cluster = AllocateCluster(circuit, platform, mode)
-    val computeNodes: Seq[ComputeNode] = cluster.computeNodes
-    nodeSupervisors = computeNodes.zipWithIndex.map {
-      case (node, idx) =>
-        CogActorSystem.createActor(context, Props(new ComputeNodeSupervisor(node, platform)),
-          name="ComputeNodeSupervisor-"+idx)
-    }
-    for (i <- 0 until computeNodes.length) {
-      computeNodes(i).gpus.foreach {
-        gpu =>
-          gpu.circuit.traversePostorder {
-            kernel => kernelIDToChild(kernel.id) = nodeSupervisors(i)
-          }
+    // Here's where we do placement and buffer allocation.
+    // We save any exceptions here, rather than throwing them, and throw them in response
+    // to the first user command (best for OpenCL resource and Akka actor system cleanup).
+    try {
+      val cluster = AllocateCluster(circuit, platform, mode)
+      val computeNodes: Seq[ComputeNode] = cluster.computeNodes
+      nodeSupervisors = computeNodes.zipWithIndex.map {
+        case (node, idx) =>
+          CogActorSystem.createActor(context, Props(new ComputeNodeSupervisor(node, platform)),
+            name="ComputeNodeSupervisor-"+idx)
       }
+      for (i <- 0 until computeNodes.length) {
+        computeNodes(i).gpus.foreach {
+          gpu =>
+            gpu.circuit.traversePostorder {
+              kernel => kernelIDToChild(kernel.id) = nodeSupervisors(i)
+            }
+        }
+      }
+    }
+    catch {
+      case e: Exception =>
+        initError = Some(e)
     }
   }
 }

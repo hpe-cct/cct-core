@@ -131,11 +131,23 @@ class ComputeGraph(val optimize: Boolean = true,
     */
   def this() = this(true)
 
+  /** If the compute graph may span multiple devices, then use code gen params
+    * that will conservatively work across all devices.  Otherwise use the
+    * params that work for the chosen device.
+    *
+    * @return code gen params for the device or devices that the ComputeGraph may use.
+    */
+  def kernelCodeGenParams = mode match {
+    case AllocationMode.SingleGPU(deviceIndex) => platform.devices(deviceIndex).kernelCodeGenParams
+    case AllocationMode.MultiGPU => platform.kernelCodeGenParams
+    case AllocationMode.Cluster => platform.kernelCodeGenParams
+  }
+
   /** Translator from SyntaxTree to KernelCircuit */
   lazy val codeGenerator = {
     if (Verbose)
       println("ComputeGraph: creating code generator")
-    new OpenCLCodeGenerator(platform.platformParams, fftUse, convolveSmallTensorUse)
+    new OpenCLCodeGenerator(kernelCodeGenParams, fftUse, convolveSmallTensorUse)
   }
 
   /** Compile a syntax tree to a circuit that can be executed by an evaluator.
@@ -177,7 +189,7 @@ class ComputeGraph(val optimize: Boolean = true,
     if (!userProbeAllRequest && optimize) {
       if (Verbose)
         println("ComputeGraph: optimizing")
-      KernelCircuitOptimizer.optimize(circuit, platform.platformParams)
+      KernelCircuitOptimizer.optimize(circuit, kernelCodeGenParams)
     }
     if (VerbosePrint)
       circuit.print
@@ -690,8 +702,15 @@ object ComputeGraph extends RestoreFactory {
     cg.restoredSyntaxTree = restoredSyntaxTree
     cg.computeGraphName = name
     // Preclude adding more fields to this restored ComputeGraph (which holds only the KernelCircuit) by calling reset.
-    cg.reset
+    // If the reset throws an exception, we can ignore it- a subsequent reset or step by the user will rethrow it.
+    // We don't want to throw the exception here because we prefer to return the ComputeGraph to the user so he/she
+    // will manipulate it within a cg.withRelease { ... } block, which will clean up OpenCL resources and Actor threads.
+    try {
+      cg.reset
+    }
+    catch {
+      case e: Exception =>
+    }
     cg
   }
 }
-

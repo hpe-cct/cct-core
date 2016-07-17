@@ -18,7 +18,7 @@ package cogx.compiler.optimizer
 
 import cogx.compiler.codegenerator.KernelCircuit
 import cogx.parameters.Cog
-import cogx.platform.opencl.OpenCLPlatformParams
+import cogx.platform.opencl.OpenCLKernelCodeGenParams
 
 /** Optimizes a kernel circuit using a variety of approaches.
   *
@@ -30,18 +30,18 @@ object KernelCircuitOptimizer extends Optimizer {
 
   /** Optimize `circuit` by a number of means.
     *
-    * @param kernelCircuit Kernel circuit to be optimized
-    * @param platformParams A bundle of platform parameters that affect kernel code generation and optimization.
-    * @param report True if verbosity is desired
-    * @return  The number of optimizations made
+    * @param kernelCircuit Kernel circuit to be optimized.
+    * @param codeGenParams A bundle of device parameters that affect kernel code generation and optimization.
+    * @param report True if verbosity is desired.
+    * @return  The number of optimizations made.
     */
-  def optimize(kernelCircuit: KernelCircuit, platformParams: OpenCLPlatformParams, report: Boolean = true) = {
+  def optimize(kernelCircuit: KernelCircuit, codeGenParams: OpenCLKernelCodeGenParams, report: Boolean = true) = {
     var optimizations = 0
     if (Enabled) {
-      optimizations += DeadKernel.optimize(kernelCircuit, platformParams)
-      optimizations += RedundantInputs.optimize(kernelCircuit, platformParams)
-      optimizations += CommonSubexpression.optimize(kernelCircuit, platformParams)
-      optimizations += ProjectFrameTensorReduceSumOptimizer.optimize(kernelCircuit, platformParams)
+      optimizations += DeadKernel.optimize(kernelCircuit, codeGenParams)
+      optimizations += RedundantInputs.optimize(kernelCircuit, codeGenParams)
+      optimizations += CommonSubexpression.optimize(kernelCircuit, codeGenParams)
+      optimizations += ProjectFrameTensorReduceSumOptimizer.optimize(kernelCircuit, codeGenParams)
 
       // Loop over a list of optimizers whose improvements may create further
       // optimization opportunities.  Keep going until no further optimizations
@@ -49,15 +49,15 @@ object KernelCircuitOptimizer extends Optimizer {
 
       // The TransformTranspose optimizer takes a few passes to fully absorb all the transpose kernels.
       // We want this complete before the transpose kernels might be merged into multi-output kernels
-      optimizations += loopOptimize(kernelCircuit, platformParams, report, Array(TransformTransposeOptimizer))
+      optimizations += loopOptimize(kernelCircuit, codeGenParams, report, Array(TransformTransposeOptimizer))
 
       // Other optimizers that might take a few passes worst case
       val dependentOptimizers = Array(HyperKernelMerger, HyperKernelMultiOutputMerger)
-      optimizations += loopOptimize(kernelCircuit, platformParams, report, dependentOptimizers)
+      optimizations += loopOptimize(kernelCircuit, codeGenParams, report, dependentOptimizers)
 
       // Reshape remover- no other kernel creation should happen after this, so do this last
 
-      optimizations += loopOptimize(kernelCircuit, platformParams, report, Array(ReshapeRemover))
+      optimizations += loopOptimize(kernelCircuit, codeGenParams, report, Array(ReshapeRemover))
 
       if (Cog.verboseOptimizer) {
         println("Post-optimizer kernel circuit:")
@@ -76,7 +76,7 @@ object KernelCircuitOptimizer extends Optimizer {
     * @param optimizers The optimizers to loop over until no further improvement is seen
     * @return  The number of optimizations made
     */
-  private def loopOptimize(kernelCircuit: KernelCircuit, platformParams: OpenCLPlatformParams, report: Boolean, optimizers: Array[Optimizer]) = {
+  private def loopOptimize(kernelCircuit: KernelCircuit, platformParams: OpenCLKernelCodeGenParams, report: Boolean, optimizers: Array[Optimizer]) = {
     var optimizations = 0
     var numOptimizers = optimizers.length
     var consecutiveFails = 0

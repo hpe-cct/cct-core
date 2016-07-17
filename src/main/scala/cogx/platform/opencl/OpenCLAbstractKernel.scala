@@ -84,7 +84,7 @@ abstract class OpenCLAbstractKernel(opcode: Opcode,
   /** Context for this kernel. */
   protected def clContext = platform.clContext
 
-  def waitForEvents(events: Seq[CLEvent]) = platform.waitForEvents(events)
+  def waitForEvents(events: Seq[CLEvent]) = device.waitForEvents(events)
 
   // Add the output VirtualFieldRegisters
   fieldTypes.foreach(new VirtualFieldRegister(_, this))

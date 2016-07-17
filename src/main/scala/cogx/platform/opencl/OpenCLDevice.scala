@@ -16,11 +16,13 @@
 
 package cogx.platform.opencl
 
-import com.jogamp.opencl.{CLDevice, CLContext}
-import cogx.cogmath.collection.{SynchronizedIdentityHashSet, IdentityHashSet}
+import com.jogamp.opencl.{CLDevice, CLEvent, CLEventList}
+import cogx.cogmath.collection.{IdentityHashSet, SynchronizedIdentityHashSet}
 import cogx.platform.types.FieldType
-import cogx.platform.cpumemory.{BufferType, AbstractFieldMemory}
+import cogx.platform.cpumemory.{AbstractFieldMemory, BufferType}
 import cogx.parameters.Cog
+import com.jogamp.opencl.llb.CLDeviceBinding
+import cogx.platform.opencl.OpenCLEventCache._
 
 /** Presents a simplified interface to an OpenCL device.
   *
@@ -59,6 +61,93 @@ class OpenCLDevice private[opencl](val clDevice: CLDevice,
     }
     _program
   }
+
+  /** The manufacturer of the device. */
+  def vendor: String = clDevice.getVendor()
+
+  /** Return true if this is an NVidia OpenCL platform. */
+  private[opencl] def isNVidia =
+    vendor.toLowerCase.contains("nvidia")
+
+  /** Return true if this is an Intel OpenCL platform. */
+  private[opencl] def isIntel =
+    vendor.toLowerCase.contains("intel")
+
+  /** Return true if this is an AMD OpenCL platform. */
+  private[opencl] def isAMD =
+    vendor.toLowerCase.contains("advanced micro devices")
+
+  /** Function for getting around an apparent bug in AMD's implementation of
+    * clWaitForEvents (though it could be a bug in JOCL instead).
+    */
+  def waitForEvents(events: Seq[CLEvent]): Unit = {
+    if (isAMD) {
+      // Wait for each event one at a time. AMD is rumored to have problems
+      // if this is not done.
+      for (event <- events)
+        if (event != null)
+          (new CLEventList(CLEventFactory, event)).waitForEvents
+        else
+          println("WARNING: null event found on event list !!!")
+    } else {
+      // Wait for all events (spec says this is legal).
+      if (events.length > 0) {
+        val eventList = new CLEventList(CLEventFactory, events: _*)
+        eventList.waitForEvents
+      }
+    }
+  }
+
+
+  /** The number of threads launched into the pipeline simultaneously, with no synchronization required. */
+  def warpSize: Int = {
+    if (isNVidia) {
+      try {
+        clDevice.getCLAccessor.getLong(CLDeviceBinding.CL_DEVICE_WARP_SIZE_NV).toInt
+      }
+      catch {
+        case e: Exception =>
+          val default = 32
+          println(s"Warning: attempt to query warpsize on device $this fails, using $default.")
+          default
+      }
+    }
+    else if (isAMD) {
+      val CL_DEVICE_WAVEFRONT_WIDTH_AMD = 0x4043
+      try {
+        clDevice.getCLAccessor.getLong(CL_DEVICE_WAVEFRONT_WIDTH_AMD).toInt
+      }
+      catch {
+        case e: Exception =>
+          val default = 32 // Most AMD GPUs have a wavefront of 64, but older ones use 32.
+          println(s"Warning: attempt to query wavefront size on device $this fails, using $default.")
+          default
+      }
+    }
+    else
+      1  // We have little experience with other vendor GPUs or CPUs, so fall back to the conservative value 1
+  }
+
+  /** The amount of local memory ("shared memory" in NVIDIA's parlance) per streaming multiprocessor. */
+  def localMemSize: Long = {
+    val MaxLocalMemSizeExposed = 64 * 1024L
+    math.min(clDevice.getLocalMemSize, MaxLocalMemSizeExposed)
+  }
+
+  /** The largest allocation of constant memory permitted. */
+  def maxConstantBufferSize: Long = {
+    val MaxConstantBufferSizeExposed = 256 * 1024L
+    math.min(clDevice.getMaxConstantBufferSize, MaxConstantBufferSizeExposed)
+  }
+
+  /** A bundle of parameters that affect kernel code generation and optimization.  These values are
+    * device-specific, so use these parameters only if the resulting kernel is guaranteed to be run
+    * on this device, e.g. if the ComputeGraph is constructed with this device index as an argument. */
+  def kernelCodeGenParams =
+    OpenCLKernelCodeGenParams(
+      maxConstantBufferSize,
+      localMemSize,
+      warpSize)
 
   /** Add device `kernel` to this device, but do not instantiate it, meaning
     * that it is not yet runnable.

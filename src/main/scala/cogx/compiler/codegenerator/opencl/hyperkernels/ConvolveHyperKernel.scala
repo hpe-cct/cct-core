@@ -21,7 +21,7 @@ import cogx.platform.types._
 import cogx.platform.types.ElementTypes._
 import cogx.cogmath.algebra.real.Logarithm
 import cogx.compiler.parser.op._
-import cogx.platform.opencl.OpenCLPlatformParams
+import cogx.platform.opencl.OpenCLKernelCodeGenParams
 import cogx.cogmath.geometry.Shape
 import cogx.compiler.codegenerator.common.FieldPolicies._
 import cogx.compiler.parser.op.ConvolveOp
@@ -675,10 +675,10 @@ class ConvolveHyperKernel private (inputs: Array[VirtualFieldRegister],
   */
 private[cogx]
 class ConvolutionParams (inputs: Array[VirtualFieldRegister],
-                                              operation: ConvolveOp,
-                                              resultType: FieldType,
-                                              val addressing: AddressingMode,
-                                              platformParams: OpenCLPlatformParams)
+                         operation: ConvolveOp,
+                         resultType: FieldType,
+                         val addressing: AddressingMode,
+                         codeGenParams: OpenCLKernelCodeGenParams)
         extends  Logarithm
 {
   private val EnableFilterInConstMemory = true
@@ -789,7 +789,7 @@ class ConvolutionParams (inputs: Array[VirtualFieldRegister],
           constMemFilterIsAWin &&
           (samplingPolicy match {
             case UpsampleInputConvolution(step) => false
-            case _ => globalMemoryFilterVolumeBytes <= platformParams.maxConstantBufferSize
+            case _ => globalMemoryFilterVolumeBytes <= codeGenParams.maxConstantBufferSize
           })
 
   val filterVolume =
@@ -835,7 +835,7 @@ class ConvolutionParams (inputs: Array[VirtualFieldRegister],
   //Assume group size is always = 256. Is there a way to detect this?
   var groupSize = 256
 
-  val localMemBytesAvailable = platformParams.localMemSize
+  val localMemBytesAvailable = codeGenParams.localMemSize
 
   /** Given a dimension of the workgroup in the post-sampled (i.e. output)
    * space, what is the maximum input dimension that the workgroup needs to access.
@@ -990,13 +990,13 @@ object ConvolveHyperKernel {
     * @param operation The binary opcode for this operation.
     * @param resultType The FieldType of the result of this kernel.
     * @param smallTensorUse Policy on use of small tensors by the kernel.
-    * @param platformParams A bundle of platform parameters that affect kernel code generation and optimization.
+    * @param codeGenParams A bundle of platform parameters that affect kernel code generation and optimization.
     * @return The synthesized hyperkernel.
     *
     */
   def apply(inputs: Array[VirtualFieldRegister], operation: ConvolveOp, resultType: FieldType,
-                   smallTensorUse: ConvolutionSmallTensorUsePolicy,
-                   platformParams: OpenCLPlatformParams): HyperKernel = {
+            smallTensorUse: ConvolutionSmallTensorUsePolicy,
+            codeGenParams: OpenCLKernelCodeGenParams): HyperKernel = {
 
     // BorderValid convolutions or crossCorrelations in filter adjoint mode
     // are handled by a different kernel. Technically, this other kernel could
@@ -1004,7 +1004,7 @@ object ConvolveHyperKernel {
     // better, but we haven't special-cased that situation here yet.
 
     def stdConvolve = {
-      val bestParameters = bestParams(inputs, operation, resultType, smallTensorUse, platformParams)
+      val bestParameters = bestParams(inputs, operation, resultType, smallTensorUse, codeGenParams)
       val bestAddressMode = bestParameters.addressing
       new ConvolveHyperKernel(inputs, operation, resultType, bestAddressMode, bestParameters)
     }
@@ -1030,9 +1030,9 @@ object ConvolveHyperKernel {
 //            else if (!platformParams.isNVidia)
 //              ConvolveToSmallFieldHyperKernel(inputs, operation, resultType, platformParams)
             else if (ConvolveToSmallFieldPipelinedTiledHyperKernel.isRecommended(inputs))
-              ConvolveToSmallFieldPipelinedTiledHyperKernel(inputs, operation, resultType, platformParams)
+              ConvolveToSmallFieldPipelinedTiledHyperKernel(inputs, operation, resultType, codeGenParams)
             else
-              ConvolveToSmallFieldPipelinedHyperKernel(inputs, operation, resultType, platformParams)
+              ConvolveToSmallFieldPipelinedHyperKernel(inputs, operation, resultType, codeGenParams)
 
             // Older version of kernel.  This can be removed after we have
             // "field tested" (pun intended) the tricky pipelined version above.
@@ -1069,11 +1069,11 @@ object ConvolveHyperKernel {
     *
     */
   def bestParams(inputs: Array[VirtualFieldRegister], operation: ConvolveOp, resultType: FieldType,
-                 smallTensorUse: ConvolutionSmallTensorUsePolicy, platformParams: OpenCLPlatformParams) = {
+                 smallTensorUse: ConvolutionSmallTensorUsePolicy, codeGenParams: OpenCLKernelCodeGenParams) = {
     lazy val tensorElementAddressingParams =
-      new ConvolutionParams(inputs, operation, resultType, TensorElementAddressing, platformParams)
+      new ConvolutionParams(inputs, operation, resultType, TensorElementAddressing, codeGenParams)
     lazy val smallTensorAddressingParams =
-      new ConvolutionParams(inputs, operation, resultType, SmallTensorAddressing, platformParams)
+      new ConvolutionParams(inputs, operation, resultType, SmallTensorAddressing, codeGenParams)
     if (operation.batchSize > 1)
       tensorElementAddressingParams
     else

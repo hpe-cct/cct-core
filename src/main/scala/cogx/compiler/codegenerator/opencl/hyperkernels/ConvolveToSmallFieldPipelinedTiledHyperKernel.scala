@@ -17,7 +17,7 @@
 package cogx.compiler.codegenerator.opencl.hyperkernels
 
 import cogx.compiler.codegenerator.opencl.fragments._
-import cogx.platform.opencl.OpenCLPlatformParams
+import cogx.platform.opencl.OpenCLKernelCodeGenParams
 import cogx.platform.types._
 import cogx.cogmath.algebra.real.Logarithm
 import cogx.compiler.parser.op._
@@ -46,7 +46,6 @@ import cogx.compiler.parser.op.ConvolveOp
   * the convolution is performed.
   *
   * @author Dick Carter
-  *
   * @param inputs The input field and the filter field driving this kernel.
   * @param operation the opcode
   * @param resultType The FieldType of the result of this kernel.
@@ -576,7 +575,7 @@ object ConvolveToSmallFieldPipelinedTiledHyperKernel extends Logarithm {
     *
     */
   def apply(inputs: Array[VirtualFieldRegister], operation: AbstractConvolveOp,
-            resultType: FieldType, platformParams: OpenCLPlatformParams): HyperKernel = {
+            resultType: FieldType, platformParams: OpenCLKernelCodeGenParams): HyperKernel = {
 
     val convolveOp = operation match {
       case op: ConvolveOp =>

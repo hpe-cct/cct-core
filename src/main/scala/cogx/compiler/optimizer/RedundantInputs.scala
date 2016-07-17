@@ -19,7 +19,7 @@ package cogx.compiler.optimizer
 import cogx.compiler.codegenerator.KernelCircuit
 import cogx.compiler.codegenerator.opencl.fragments.HyperKernel
 import cogx.parameters.Cog
-import cogx.platform.opencl.OpenCLPlatformParams
+import cogx.platform.opencl.OpenCLKernelCodeGenParams
 
 /** Removes redundant (duplicated) inputs on kernels by replacing each such
   * kernel with another without the redundancy.
@@ -31,12 +31,12 @@ object RedundantInputs extends Optimizer {
   /** Replace kernels with redundant inputs in `kernelCircuit` with
     * kernels that have not redundant inputs.
     *
-    * @param kernelCircuit Kernel circuit to be optimized
-    * @param platformParams A bundle of platform parameters that affect kernel code generation and optimization.
-    * @param report True if verbosity is desired
-    * @return  The number of optimizations made
+    * @param kernelCircuit Kernel circuit to be optimized.
+    * @param codeGenParams A bundle of device parameters that affect kernel code generation and optimization.
+    * @param report True if verbosity is desired.
+    * @return  The number of optimizations made.
     */
-  def optimize(kernelCircuit: KernelCircuit, platformParams: OpenCLPlatformParams, report: Boolean = true): Int = {
+  def optimize(kernelCircuit: KernelCircuit, codeGenParams: OpenCLKernelCodeGenParams, report: Boolean = true): Int = {
     if (Cog.verboseOptimizer) {
       println("    *** RedundantInputs: starting (" + kernelCircuit.size + " nodes)")
       //Timer.go
@@ -64,11 +64,11 @@ object RedundantInputs extends Optimizer {
 
   /** Since this optimizer doesn't rely on platform parameters, we provide this simpler interface. */
   def optimize(circuit: KernelCircuit, report: Boolean): Int =
-    optimize(circuit, null.asInstanceOf[OpenCLPlatformParams], report)
+    optimize(circuit, null.asInstanceOf[OpenCLKernelCodeGenParams], report)
 
   /** Since this optimizer doesn't rely on platform parameters, we provide this simpler interface. */
   def optimize(circuit: KernelCircuit): Int =
-    optimize(circuit, null.asInstanceOf[OpenCLPlatformParams], true)
+    optimize(circuit, null.asInstanceOf[OpenCLKernelCodeGenParams], true)
 
   /** Find a kernel in `dag` that has duplicated inputs, if any. */
   private def findBadKernel(dag: KernelCircuit): Option[HyperKernel] = {

@@ -19,10 +19,9 @@ package cogx.platform.opencl
 import cogx.platform.cpumemory.FieldMemory
 import com.jogamp.opencl._
 import util.CLPlatformFilters._
-import util.{Filter, JOCLVersion}
+import util.Filter
 import com.jogamp.opencl.CLDevice.Type._
 import cogx.parameters.Cog
-import cogx.platform.opencl.OpenCLEventCache._
 
 /** The OpenCLPlatform provides access to GPUs on a node, taking care of all
   * of the housekeeping necessary to make them functional.
@@ -54,7 +53,6 @@ class OpenCLPlatform {
     * Set cycle-count interval between outputs as in:
     *
     * -Dcog.profileSize=100
-    *
     */
 
   /** The actual platform used. */
@@ -105,81 +103,37 @@ class OpenCLPlatform {
     string
   }
 
-  /** Return true if this is an NVidea OpenCL platform. */
-  private[opencl] def isNVidia =
-    platform.getVendor.toLowerCase.contains("nvidia")
-
-  /** Return true if this is an Intel OpenCL platform. */
-  private[opencl] def isIntel =
-    platform.getVendor.toLowerCase.contains("intel")
-
-  /** Return true if this is an AMD OpenCL platform. */
-  private[opencl] lazy val isAMD =
-    platform.getVendor.toLowerCase.contains("advanced micro devices")
-
-  /** A `warp` is an NVidia term used to describe the set of threads that share
-    * a program counter and thus move together in the execution pipeline.  Reads
-    * and writes of shared memory by same-warp threads need not be synchronized.
-    * The reduce kernels use knowledge of the `warpSize` to avoid unnecessary
-    * performance-reducing synchronizations.  NVidia will likely stick with 32
-    * as its warp size for the foreseeable future.  CPU platforms (at least
-    * for non-integrated graphics processors) should use 1 as the warp size.
-    * @return  The number of threads in a `warp`
-    */
-  private def warpSize = if (isNVidia) 32 else 1
-
-  /** What is the least capable device on this platform w.r.t. localMemSize?
-    * We now prune off GPU devices that have less local memory than others
-    * in the platform, figuring those are the "low-end" monitor cards that
-    * shouldn't be used for compute.
-    */
-  private def localMemSize: Long =
-    devices.map(_.clDevice.getLocalMemSize).foldLeft(64*1024L)(_ min _)
-
-  /** What is the least capable device on this platform w.r.t. constant memory
-    * allocations?  OpenCL specs this at a minimum of 64K, but that seems to
-    * be all that NVidia and others provide.  Just in case we're on a CPU
-    * platform with more memory, we will allow the max to grow to 256KBytes.
-    */
-  private def maxConstantBufferSize: Long =
-    devices.map(_.clDevice.getMaxConstantBufferSize).foldLeft(256*1024L)(_ min _)
-
-  /** What is the least capable device on this platform w.r.t. individual buffer
-    * allocations?
-    */
-  def maxFieldSize: Long =
-    devices.map(_.clDevice.getMaxMemAllocSize).foldLeft(Long.MaxValue)(_ min _)
+  /** What is the least capable device on this platform w.r.t. individual buffer allocations? */
+  def maxFieldSize: Long = devices.map(_.clDevice.getMaxMemAllocSize).foldLeft(Long.MaxValue)(_ min _)
 
   /** A bundle of platform parameters that affect kernel code generation and optimization. */
-  def platformParams =
-    OpenCLPlatformParams(
+  lazy val kernelCodeGenParams = {
+    // If we asking for these parameters, then we're compiling to multiple devices.  If the
+    // platform-wide codegen parameters don't match those for an individual device, then alert
+    // the user.
+
+    def gcd(i: Int, j: Int): Int = if (j == 0) i else gcd(j, i % j)
+
+    val warpSize = devices.map(_.warpSize).reduceLeft(gcd(_, _))
+    val localMemSize: Long = devices.map(_.localMemSize).reduceLeft(_ min _)
+    val maxConstantBufferSize: Long = devices.map(_.maxConstantBufferSize).reduceLeft(_ min _)
+    for (i <- 0 until devices.length) {
+      if (warpSize != devices(i).warpSize)
+        println(s"Warning: using device $i ($toString) suboptimally with warpSize $warpSize due to multi-GPU platform compile (could be ${devices(i).warpSize}).")
+      if (localMemSize != devices(i).localMemSize)
+        println(s"Warning: using device $i ($toString) suboptimally with localMemSize $localMemSize due to multi-GPU platform compile (could be ${devices(i).localMemSize}).")
+      if (maxConstantBufferSize != devices(i).maxConstantBufferSize)
+        println(s"Warning: using device $i ($toString) suboptimally with maxConstantBufferSize $maxConstantBufferSize due to multi-GPU platform compile (could be ${devices(i).maxConstantBufferSize}).")
+    }
+
+    OpenCLKernelCodeGenParams(
       maxConstantBufferSize,
       localMemSize,
-      warpSize,
-      isNVidia)
+      warpSize)
+  }
+
   /** Print out a string describing the platform. */
   override def toString = platformToString(platform)
-
-  /** Function for getting around an apparent bug in AMD's implementation of
-    * clWaitForEvents (though it could be a bug in JOCL instead).
-    */
-  def waitForEvents(events: Seq[CLEvent]): Unit = {
-    if (isAMD) {
-      // Wait for each event one at a time. AMD is rumored to have problems
-      // if this is not done.
-      for (event <- events)
-        if (event != null)
-          (new CLEventList(CLEventFactory, event)).waitForEvents
-        else
-          println("WARNING: null event found on event list !!!")
-    } else {
-      // Wait for all events (spec says this is legal).
-      if (events.length > 0) {
-        val eventList = new CLEventList(CLEventFactory, events: _*)
-        eventList.waitForEvents
-      }
-    }
-  }
 
   /** Create devices for the platform. selecting only GPU devices
     * if any are available, else all devices.
@@ -188,14 +142,8 @@ class OpenCLPlatform {
     // Select devices
     val allDevices = platform.listCLDevices()
     val gpuDevices = platform.listCLDevices(GPU)
-    val selectedDevices =
-      if (gpuDevices.length > 0) {
-        val maxLocalMemSize = gpuDevices.map(_.getLocalMemSize).foldLeft(0L)(_ max _)
-        val bestGPUDevices = gpuDevices.filter(_.getLocalMemSize == maxLocalMemSize)
-        bestGPUDevices
-      }
-      else
-        allDevices
+    val selectedDevices = if (gpuDevices.length > 0) gpuDevices else allDevices
+
     if (Cog.verboseOpenCLDevices) {
       val ignoredDevices = allDevices.filterNot(selectedDevices.contains(_))
       selectedDevices.foreach(device => println("Selecting: " + device.toString))
@@ -217,7 +165,7 @@ class OpenCLPlatform {
     require(selectedPlatform != null, "No OpenCL platforms found")
     if (Cog.verboseOpenCLPlatform) {
       val platforms: Array[CLPlatform] = CLPlatform.listCLPlatforms
-      println("JOCL Version:\n"+ JOCLVersion.getVersion())
+      println("Jocl platform and package versions:\n" + JoclVersion.getInstance.getAllVersions(null))
       println("Selecting OpenCL platform: " + platformToString(selectedPlatform))
       platforms.foreach(platform =>
         if (platform != selectedPlatform)

@@ -23,6 +23,5 @@ package cogx.platform.opencl
   * @param maxConstantBufferSize The maximum amount of constant memory permitted on the platform.
   * @param localMemSize The maximum amount of local memory (workgroup-shared memory) permitted on the platform.
   * @param warpSize The number of threads that execute in lock-step without need for memory synchronization.
-  * @param isNVidia Are we compiling to an NVIDIA platform.
   */
-case class OpenCLPlatformParams(maxConstantBufferSize: Long, localMemSize: Long, warpSize: Int, isNVidia: Boolean)
+case class OpenCLKernelCodeGenParams(maxConstantBufferSize: Long, localMemSize: Long, warpSize: Int)

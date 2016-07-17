@@ -19,14 +19,14 @@ package cogx.compiler.codegenerator.opencl.generator
 import cogx.compiler.codegenerator.{KernelCircuit, CodeGenerator}
 import cogx.compiler.parser.syntaxtree._
 import cogx.platform.types._
-import cogx.platform.opencl.{OpenCLPlatformParams, OpenCLAbstractKernel}
+import cogx.platform.opencl.{OpenCLKernelCodeGenParams, OpenCLAbstractKernel}
 import cogx.compiler.codegenerator.opencl.cpukernels.RecurrentFieldKernel
 import cogx.cogmath.collection.IdentityHashMap
 import cogx.parameters.Cog
 
 /** Generates a Circuit of OpenCL kernels from a syntax tree.
   *
-  * @param platformParams A bundle of platform parameters that affect kernel code generation and optimization.
+  * @param codeGenParams A bundle of device parameters that affect kernel code generation and optimization.
   * @param fftUse policy for FFT use in fast convolution.
   * @param smallTensorUse policy for when to use SmallTensorAddressing in convolution.
   *
@@ -40,7 +40,7 @@ import cogx.parameters.Cog
   * @author Greg Snider
   */
 private[cogx]
-class OpenCLCodeGenerator(platformParams: OpenCLPlatformParams = null,
+class OpenCLCodeGenerator(codeGenParams: OpenCLKernelCodeGenParams = null,
                           fftUse: ConvolutionFFTUsePolicy = UseFFTWhenBest,
                           smallTensorUse: ConvolutionSmallTensorUsePolicy = UseSmallTensorWhenBest)
         extends CodeGenerator[OpenCLAbstractKernel] {
@@ -120,21 +120,21 @@ class OpenCLCodeGenerator(platformParams: OpenCLPlatformParams = null,
                 outField match {
                   case f: ScalarField =>
                     ScalarFieldGenerator(f, translateFields(f.inputs),
-                      platformParams, fftUse, smallTensorUse)
+                      codeGenParams, fftUse, smallTensorUse)
                   case f: ColorField =>
                     ColorFieldGenerator(f, translateFields(f.inputs))
                   case f: VectorField =>
                     VectorFieldGenerator(f, translateFields(f.inputs),
-                      platformParams, fftUse, smallTensorUse)
+                      codeGenParams, fftUse, smallTensorUse)
                   case f: MatrixField =>
                     MatrixFieldGenerator(f, translateFields(f.inputs),
-                      platformParams, fftUse, smallTensorUse)
+                      codeGenParams, fftUse, smallTensorUse)
                   case f: ComplexField =>
                     ComplexFieldGenerator(f, translateFields(f.inputs),
-                      platformParams, fftUse, smallTensorUse)
+                      codeGenParams, fftUse, smallTensorUse)
                   case f: ComplexVectorField =>
                     ComplexVectorFieldGenerator(f, translateFields(f.inputs),
-                      platformParams, fftUse, smallTensorUse)
+                      codeGenParams, fftUse, smallTensorUse)
                   case x =>
                     throw new RuntimeException("oops, bad field type: " + x.getClass.getSimpleName)
                 }

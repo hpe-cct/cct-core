@@ -187,7 +187,7 @@ class GPUSupervisor(device: OpenCLDevice, gpu: GPU)
       rootOutputTriggers(r) = rootKernels(r).done.getEvent(0)
       require(rootOutputTriggers(r) != null)
     }
-    device.platform.waitForEvents(rootOutputTriggers)
+    device.waitForEvents(rootOutputTriggers)
 
     // End of hard synchronization
     //

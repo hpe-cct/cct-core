@@ -16,7 +16,7 @@
 
 package cogx.compiler.optimizer
 
-import cogx.platform.opencl.OpenCLPlatformParams
+import cogx.platform.opencl.OpenCLKernelCodeGenParams
 import scala.language.implicitConversions
 import scala.language.reflectiveCalls
 import scala.collection.mutable.HashSet
@@ -36,12 +36,12 @@ object CommonSubexpression extends Optimizer {
     * This looks for AbstractKernels with the same opcodes and inputs and
     * removes one of the them, copying over its sinks to the other.
     *
-    * @param circuit Kernel circuit to be optimized
-    * @param platformParams A bundle of platform parameters that affect kernel code generation and optimization.
-    * @param report True if verbosity is desired
-    * @return  The number of optimizations made
+    * @param circuit Kernel circuit to be optimized.
+    * @param codeGenParams A bundle of device parameters that affect kernel code generation and optimization.
+    * @param report True if verbosity is desired.
+    * @return  The number of optimizations made.
     */
-  def optimize(circuit: KernelCircuit, platformParams: OpenCLPlatformParams, report: Boolean = true): Int = {
+  def optimize(circuit: KernelCircuit, codeGenParams: OpenCLKernelCodeGenParams, report: Boolean = true): Int = {
     if (Cog.verboseOptimizer)
       println("    *** CommonSubexpression: starting (" + circuit.size + " nodes)")
     // The hash set here relies on some subtle properties of AbstractKernels
@@ -86,9 +86,9 @@ object CommonSubexpression extends Optimizer {
 
   /** Since this optimizer doesn't rely on platform parameters, we provide this simpler interface. */
   def optimize(circuit: KernelCircuit, report: Boolean): Int =
-    optimize(circuit, null.asInstanceOf[OpenCLPlatformParams], report)
+    optimize(circuit, null.asInstanceOf[OpenCLKernelCodeGenParams], report)
 
   /** Since this optimizer doesn't rely on platform parameters, we provide this simpler interface. */
   def optimize(circuit: KernelCircuit): Int =
-    optimize(circuit, null.asInstanceOf[OpenCLPlatformParams], true)
+    optimize(circuit, null.asInstanceOf[OpenCLKernelCodeGenParams], true)
 }

@@ -25,8 +25,8 @@ import org.junit.runner.RunWith
 import org.scalatest.MustMatchers
 import org.scalatest.FunSuite
 import cogx.platform.opencl._
-import akka.actor.{ActorSystem, TypedActor, TypedProps}
-import cogx.runtime.execution.{CircuitEvaluator, CogActorSystem}
+import akka.actor.{ActorSystem, Props, TypedActor, TypedProps}
+import cogx.runtime.execution.{CircuitEvaluator, ClusterSupervisor, CogActorSystem}
 import cogx.runtime.EvaluatorInterface
 import cogx.compiler.codegenerator.KernelCircuit
 import cogx.platform.cpumemory.ScalarFieldMemory
@@ -37,6 +37,7 @@ import cogx.compiler.parser.op.{AddOp, ConstantScalar0DOp, ConstantScalar1DOp, M
 import cogx.compiler.codegenerator.opencl.fragments.{BigTensorAddressing, HyperKernel, SmallTensorAddressing}
 import cogx.compiler.optimizer.{HyperKernelMultiOutputMerger, KernelCircuitOptimizer}
 import cogx.runtime.allocation.AllocationMode
+import cogx.runtime.allocation.AllocationMode.SingleGPU
 
 /** Test code for OpenCLEvaluator.  Also includes tests of KernelCircuits
   * that have mulit-output CPU and GPU kernels.
@@ -91,7 +92,7 @@ class OpenCLEvaluatorSpec extends FunSuite with MustMatchers {
   }
 
   /** Create and return the evaluator (normally handled by ComputeGraph) */
-  def createEvaluator(circuit: KernelCircuit, platform: OpenCLPlatform) = {
+  class Evaluator(circuit: KernelCircuit, platform: OpenCLPlatform) {
     // Some code borrowed from ComputeGraph
 
     /** Actor system, used only for actor-based evaluators. */
@@ -110,7 +111,13 @@ class OpenCLEvaluatorSpec extends FunSuite with MustMatchers {
       ta.tellIdentity(evaluatorActor)
       ta
     }
-    evaluator
+
+    def step = evaluator.step
+    def reset = evaluator.reset
+    def release = {
+      actorSystem.shutdown()
+      platform.release()
+    }
   }
 
   /** Does a very simple test to verify that CPU computations can
@@ -162,7 +169,7 @@ class OpenCLEvaluatorSpec extends FunSuite with MustMatchers {
       probeKernels(source, times2, times4, times8)
     }
 
-    val evaluator = createEvaluator(circuit, platform)
+    val evaluator = new Evaluator(circuit, platform)
 
     try {
       evaluator.reset
@@ -180,7 +187,7 @@ class OpenCLEvaluatorSpec extends FunSuite with MustMatchers {
       }
     }
     finally
-      platform.release()
+      evaluator.release
   }
 
   /** Another test to verify that CPU computations can synchronize and
@@ -240,7 +247,7 @@ class OpenCLEvaluatorSpec extends FunSuite with MustMatchers {
       probeKernels(times_10_3, times_6_30)
     }
 
-    val evaluator = createEvaluator(circuit, platform)
+    val evaluator = new Evaluator(circuit, platform)
 
     try {
       evaluator.reset
@@ -258,7 +265,7 @@ class OpenCLEvaluatorSpec extends FunSuite with MustMatchers {
       }
     }
     finally
-      platform.release()
+      evaluator.release
   }
 
   /** Does a very simple test to verify that CPU and GPU computations can
@@ -312,7 +319,7 @@ class OpenCLEvaluatorSpec extends FunSuite with MustMatchers {
       probeKernels(source, doubler3, doubler4)
     }
 
-    val evaluator = createEvaluator(circuit, platform)
+    val evaluator = new Evaluator(circuit, platform)
 
     try {
       evaluator.reset
@@ -338,7 +345,7 @@ class OpenCLEvaluatorSpec extends FunSuite with MustMatchers {
       }
     }
     finally
-      platform.release()
+      evaluator.release
   }
 
   /** A simple test of feedback: a 0D counter.
@@ -384,7 +391,7 @@ class OpenCLEvaluatorSpec extends FunSuite with MustMatchers {
       counter.recurrence = incrementer.outputs(0)
     }
 
-    val evaluator = createEvaluator(circuit, platform)
+    val evaluator = new Evaluator(circuit, platform)
 
     try {
       evaluator.reset
@@ -408,7 +415,7 @@ class OpenCLEvaluatorSpec extends FunSuite with MustMatchers {
       require(counterValue == InitialCount)
     }
     finally
-      platform.release
+      evaluator.release
   }
 
   /** Another test to verify that CPU computations can synchronize and
@@ -467,7 +474,7 @@ class OpenCLEvaluatorSpec extends FunSuite with MustMatchers {
       probeKernels(times_10_3, times_6_30)
     }
 
-    val evaluator = createEvaluator(circuit, platform)
+    val evaluator = new Evaluator(circuit, platform)
 
     try {
       evaluator.reset
@@ -485,7 +492,7 @@ class OpenCLEvaluatorSpec extends FunSuite with MustMatchers {
       }
     }
     finally
-      platform.release()
+      evaluator.release
   }
   /** BigTensorMode kernels output their data from within the CodeFragment, not from an OutputFragment.
     * This test verifies that when two BigtensorMode kernels get merged, the proper output field name
@@ -518,8 +525,8 @@ class OpenCLEvaluatorSpec extends FunSuite with MustMatchers {
       probeKernels(out0, out1)
     }
 
-    KernelCircuitOptimizer.optimize(circuit, platform.platformParams)
-    val evaluator = createEvaluator(circuit, platform)
+    KernelCircuitOptimizer.optimize(circuit, platform.kernelCodeGenParams)
+    val evaluator = new Evaluator(circuit, platform)
 
     // Track down where the field memory is after the optimizer has run
     def kernelToScalarFieldMemory(k: AbstractKernel) = {
@@ -538,7 +545,7 @@ class OpenCLEvaluatorSpec extends FunSuite with MustMatchers {
       }
     }
     finally
-      platform.release()
+      evaluator.release
   }
   /** This is a recasting of a previous test, this time with the SwapScaler being a multi-output
     * HyperKernel, subject to merging.
@@ -574,8 +581,8 @@ class OpenCLEvaluatorSpec extends FunSuite with MustMatchers {
       }
 
       if (optimize)
-        KernelCircuitOptimizer.optimize(circuit, platform.platformParams)
-      val evaluator = createEvaluator(circuit, platform)
+        KernelCircuitOptimizer.optimize(circuit, platform.kernelCodeGenParams)
+      val evaluator = new Evaluator(circuit, platform)
 
       try {
         evaluator.reset
@@ -598,7 +605,7 @@ class OpenCLEvaluatorSpec extends FunSuite with MustMatchers {
         requireHyperKernelCount(circuit, expectedKernelCount)
       }
       finally
-        platform.release()
+        evaluator.release
     }
 
     runTest(optimize=false, 2)
@@ -645,8 +652,8 @@ class OpenCLEvaluatorSpec extends FunSuite with MustMatchers {
       }
 
       if (optimize)
-        KernelCircuitOptimizer.optimize(circuit, platform.platformParams)
-      val evaluator = createEvaluator(circuit, platform)
+        KernelCircuitOptimizer.optimize(circuit, platform.kernelCodeGenParams)
+      val evaluator = new Evaluator(circuit, platform)
 
       try {
         evaluator.reset
@@ -673,7 +680,7 @@ class OpenCLEvaluatorSpec extends FunSuite with MustMatchers {
         requireHyperKernelCount(circuit, expectedKernelCount)
       }
       finally
-        platform.release()
+        evaluator.release
     }
 
     val optimizedKernels = if (HyperKernelMultiOutputMerger.Enabled) 1 else 3
@@ -729,8 +736,8 @@ class OpenCLEvaluatorSpec extends FunSuite with MustMatchers {
       }
 
       if (optimize)
-        KernelCircuitOptimizer.optimize(circuit, platform.platformParams)
-      val evaluator = createEvaluator(circuit, platform)
+        KernelCircuitOptimizer.optimize(circuit, platform.kernelCodeGenParams)
+      val evaluator = new Evaluator(circuit, platform)
 
       try {
         evaluator.reset
@@ -761,7 +768,7 @@ class OpenCLEvaluatorSpec extends FunSuite with MustMatchers {
         requireHyperKernelCount(circuit, expectedKernelCount)
       }
       finally
-        platform.release()
+        evaluator.release
     }
 
     runTest(optimize=false, 10)
@@ -801,8 +808,8 @@ class OpenCLEvaluatorSpec extends FunSuite with MustMatchers {
       }
 
       if (optimize)
-        KernelCircuitOptimizer.optimize(circuit, platform.platformParams)
-      val evaluator = createEvaluator(circuit, platform)
+        KernelCircuitOptimizer.optimize(circuit, platform.kernelCodeGenParams)
+      val evaluator = new Evaluator(circuit, platform)
 
       try {
         evaluator.reset
@@ -819,7 +826,7 @@ class OpenCLEvaluatorSpec extends FunSuite with MustMatchers {
         requireHyperKernelCount(circuit, expectedKernelCount)
       }
       finally
-        platform.release()
+        evaluator.release
     }
 
     runTest(optimize=false, 4)

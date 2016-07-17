@@ -17,7 +17,7 @@
 package cogx.compiler.codegenerator.opencl.hyperkernels
 
 import cogx.compiler.codegenerator.opencl.fragments._
-import cogx.platform.opencl.OpenCLPlatformParams
+import cogx.platform.opencl.OpenCLKernelCodeGenParams
 import cogx.platform.types._
 import cogx.cogmath.algebra.real.Logarithm
 import cogx.compiler.parser.op._
@@ -46,7 +46,6 @@ import cogx.compiler.parser.op.ConvolveOp
   * the convolution is performed.
   *
   * @author Dick Carter
-  *
   * @param inputs The input field and the filter field driving this kernel.
   * @param operation the opcode
   * @param resultType The FieldType of the result of this kernel.
@@ -503,12 +502,12 @@ object ConvolveToSmallFieldPipelinedHyperKernel {
     * @param inputs The input and filter virtual field registers driving this kernel.
     * @param operation The binary opcode for this operation.
     * @param resultType The FieldType of the result of this kernel.
-    * @param platformParams A bundle of platform parameters that affect kernel code generation and optimization.
+    * @param codeGenParams A bundle of device parameters that affect kernel code generation and optimization.
     * @return The synthesized hyperkernel.
     *
     */
   def apply(inputs: Array[VirtualFieldRegister], operation: ConvolveOp,
-            resultType: FieldType, platformParams: OpenCLPlatformParams): HyperKernel = {
+            resultType: FieldType, codeGenParams: OpenCLKernelCodeGenParams): HyperKernel = {
 
     // This kernel performs the convolution as separate convolutions of tiles
     // of the 2nd "filter" input.  As such, it does not produce a fully reduced
@@ -516,7 +515,7 @@ object ConvolveToSmallFieldPipelinedHyperKernel {
     // summed by the TensorReduceHyperKernel.
 
     val params =
-      new ConvolutionToSmallFieldParams(inputs, operation, resultType, platformParams,
+      new ConvolutionToSmallFieldParams(inputs, operation, resultType, codeGenParams,
         filterVolumeMultiplier = 2,
         numFilterMemories = 2,
         numResultMemories = 1)

@@ -23,11 +23,9 @@ import org.junit.runner.RunWith
 import api.ImplicitConversions
 import cogx.helper.{ColorFieldBuilderInterface, ScalarFieldBuilderInterface}
 import cogx.reference.RefTestInterface
-import cogx.runtime.execution.CogActorSystem
 
 import scala.concurrent.duration._
-import scala.concurrent.{Await, ExecutionContext, Future}
-import scala.util.{Failure, Success}
+import scala.concurrent.{Await, Future}
 import scala.concurrent.ExecutionContext.Implicits.global
 
 /** Test code for user-defined GPU operators

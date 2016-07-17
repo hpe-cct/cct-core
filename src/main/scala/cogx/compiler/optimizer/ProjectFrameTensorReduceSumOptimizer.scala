@@ -21,7 +21,7 @@ import cogx.compiler.codegenerator.KernelCircuit
 import cogx.compiler.codegenerator.opencl.hyperkernels.{ConvolveTiledHyperKernel2, SliceVectorsHyperKernel, ConvolveHyperKernel, TensorReduceHyperKernel}
 import cogx.compiler.parser.op._
 import cogx.parameters.Cog
-import cogx.platform.opencl.OpenCLPlatformParams
+import cogx.platform.opencl.OpenCLKernelCodeGenParams
 import cogx.platform.types.{BorderValid, UseSmallTensorWhenBest}
 
 /** Optimizer of kernel DAGs.
@@ -42,12 +42,12 @@ object ProjectFrameTensorReduceSumOptimizer extends Optimizer {
 
   /** "Horizontally" merge all HyperKernels in `dag` when possible.
     *
-    * @param dag Kernel circuit to be optimized
-    * @param platformParams A bundle of platform parameters that affect kernel code generation and optimization.
-    * @param report True if verbosity is desired
-    * @return  The number of optimizations made
+    * @param dag Kernel circuit to be optimized.
+    * @param codeGenParams A bundle of device parameters that affect kernel code generation and optimization.
+    * @param report True if verbosity is desired.
+    * @return  The number of optimizations made.
     */
-  def optimize(dag: KernelCircuit, platformParams: OpenCLPlatformParams, report: Boolean = true) = {
+  def optimize(dag: KernelCircuit, codeGenParams: OpenCLKernelCodeGenParams, report: Boolean = true) = {
     val answer =
       if (!Enabled) {
         if (Cog.verboseOptimizer) {
@@ -110,7 +110,7 @@ object ProjectFrameTensorReduceSumOptimizer extends Optimizer {
                        }
                         else {
                           ConvolveHyperKernel(convolveKernel.inputs.toArray, newOp,
-                            newResultType, UseSmallTensorWhenBest, platformParams)
+                            newResultType, UseSmallTensorWhenBest, codeGenParams)
                         }
                       val lastKernel =
                         if (newResultType.tensorShape == Shape(1))

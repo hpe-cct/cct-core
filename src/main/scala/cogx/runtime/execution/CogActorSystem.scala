@@ -104,6 +104,24 @@ object CogActorSystem {
       |
     """.stripMargin
 
+  /** We don't try to run past a thrown exception from any of the Actors, thus
+    * we want the supervisor to stop the actors, not restart them.
+    */
+  private val debug =
+    """
+      | akka {
+      |   loglevel = "DEBUG"
+      |   actor {
+      |     debug {
+      |       lifecycle = on
+      |       unhandled = on
+      |       autoreceive = on
+      |     }
+      |   }
+      | }
+      |
+    """.stripMargin
+
   /** Exceptions thrown in the CPU kernel actors are messaged to the CircuitEvaluator,
     * which throws the exception.  The CiruitEvaluator is a TypedActor that will be
     * stopped.  There are often some "dead letter" messages still floating around (e.g.
@@ -130,7 +148,7 @@ object CogActorSystem {
       oneActorPerThreadDispatcher +
         typedActorBlockingMethodsTimeout +
           stoppingSupervisorStrategy +
-            disableDeadLetterLogging
+            disableDeadLetterLogging  // + debug
     val myConfig = ConfigFactory.parseString(configString)
     val combined = myConfig.withFallback(regularConfig)
     val completeConfig = ConfigFactory.load(combined)

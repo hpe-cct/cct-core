@@ -17,7 +17,7 @@
 package cogx.compiler.codegenerator.opencl.generator
 
 import cogx.compiler.parser.op._
-import cogx.platform.opencl.OpenCLPlatformParams
+import cogx.platform.opencl.OpenCLKernelCodeGenParams
 import cogx.platform.types._
 import cogx.compiler.parser.op.{BinaryConstOpcode, BinaryOpcode, UnaryOpcode, ConstantOp}
 import cogx.compiler.codegenerator.opencl.cpukernels.{UserOperatorKernel, ConstantFieldKernel, RecurrentFieldKernel}
@@ -36,13 +36,13 @@ object MatrixFieldGenerator {
     *
     * @param field The field which will have a kernel generated for it.
     * @param inputs Inputs to the operation.
-    * @param platformParams A bundle of platform parameters that affect kernel code generation and optimization.
+    * @param codeGenParams A bundle of device parameters that affect kernel code generation and optimization.
     * @param fftUse policy for FFT use in fast convolution.
     * @param smallTensorUse policy for when to use SmallTensorAddressing in convolution.
     * @return OpenCL kernel implementing the operation.
     */
   def apply(field: Field, inputs: Array[VirtualFieldRegister],
-            platformParams: OpenCLPlatformParams,
+            codeGenParams: OpenCLKernelCodeGenParams,
             fftUse: ConvolutionFFTUsePolicy,
             smallTensorUse: ConvolutionSmallTensorUsePolicy): AbstractKernel =
   {
@@ -95,11 +95,11 @@ object MatrixFieldGenerator {
       case op: TensorStackOp =>
         StackTensorsHyperKernel(inputs, op, fieldType)
       case FieldReduceMaxOp =>
-        ScalarReduceHyperKernel(inputs(0), opcode, fieldType, platformParams.warpSize)
+        ScalarReduceHyperKernel(inputs(0), opcode, fieldType, codeGenParams.warpSize)
       case FieldReduceMinOp =>
-        ScalarReduceHyperKernel(inputs(0), opcode, fieldType, platformParams.warpSize)
+        ScalarReduceHyperKernel(inputs(0), opcode, fieldType, codeGenParams.warpSize)
       case FieldReduceSumOp =>
-        ScalarReduceHyperKernel(inputs(0), opcode, fieldType, platformParams.warpSize)
+        ScalarReduceHyperKernel(inputs(0), opcode, fieldType, codeGenParams.warpSize)
       case MatrixTransposeOp =>
         TensorTransposeHyperKernel(inputs, opcode, fieldType)
       case VectorTransposeOp =>
@@ -111,7 +111,7 @@ object MatrixFieldGenerator {
       case Transpose2DOp =>
         TransposeHyperKernel(inputs, Transpose2DOp, fieldType)
       case op: ConvolveOp =>
-        DynamicConvolutionGenerator(inputs, op, fieldType, fftUse, smallTensorUse, platformParams)
+        DynamicConvolutionGenerator(inputs, op, fieldType, fftUse, smallTensorUse, codeGenParams)
       case PushOp =>
         require(fieldType.dimensions > 0)
         PushHyperKernel(inputs, opcode, fieldType)

@@ -19,7 +19,7 @@ package cogx.compiler.codegenerator.opencl.generator
 import cogx.compiler.codegenerator.opencl.hyperkernels.discretecosinetransform.DCT2DHyperKernel
 import cogx.compiler.parser.op._
 import cogx.compiler.codegenerator.opencl.hyperkernels._
-import cogx.platform.opencl.OpenCLPlatformParams
+import cogx.platform.opencl.OpenCLKernelCodeGenParams
 import cogx.platform.types.{VirtualFieldRegister, ConvolutionSmallTensorUsePolicy, ConvolutionFFTUsePolicy, AbstractKernel}
 import cogx.compiler.codegenerator.opencl.cpukernels._
 import cogx.compiler.codegenerator.common.FieldPolicies._
@@ -58,7 +58,7 @@ object ScalarFieldGenerator {
     * @return OpenCL kernel implementing the operation.
     */
   def apply(field: Field, inputs: Array[VirtualFieldRegister],
-            platformParams: OpenCLPlatformParams,
+            platformParams: OpenCLKernelCodeGenParams,
             fftUse: ConvolutionFFTUsePolicy,
             smallTensorUse: ConvolutionSmallTensorUsePolicy): AbstractKernel =
   {

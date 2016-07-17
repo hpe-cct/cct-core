@@ -16,7 +16,7 @@
 
 package cogx.compiler.codegenerator.opencl.generator
 
-import cogx.platform.opencl.OpenCLPlatformParams
+import cogx.platform.opencl.OpenCLKernelCodeGenParams
 import cogx.platform.types.{VirtualFieldRegister, ConvolutionSmallTensorUsePolicy, ConvolutionFFTUsePolicy, AbstractKernel}
 import cogx.compiler.parser.op._
 import cogx.compiler.codegenerator.opencl.hyperkernels._
@@ -34,13 +34,13 @@ object ComplexFieldGenerator {
     *
     * @param field The field which will have a kernel generated for it.
     * @param inputs Inputs to the operation.
-    * @param platformParams A bundle of platform parameters that affect kernel code generation and optimization.
+    * @param codeGenParams A bundle of device parameters that affect kernel code generation and optimization.
     * @param fftUse policy for FFT use in fast convolution.
     * @param smallTensorUse policy for when to use SmallTensorAddressing in convolution.
     * @return OpenCL kernel implementing the operation.
     */
   def apply(field: Field, inputs: Array[VirtualFieldRegister],
-            platformParams: OpenCLPlatformParams,
+            codeGenParams: OpenCLKernelCodeGenParams,
             fftUse: ConvolutionFFTUsePolicy,
             smallTensorUse: ConvolutionSmallTensorUsePolicy): AbstractKernel =
   {
@@ -65,7 +65,7 @@ object ComplexFieldGenerator {
       // the more generalized kernels below):
 
       case op: ConvolveOp =>
-        DynamicConvolutionGenerator(inputs, op, fieldType, fftUse, smallTensorUse, platformParams)
+        DynamicConvolutionGenerator(inputs, op, fieldType, fftUse, smallTensorUse, codeGenParams)
       case FlipOp =>
         FlipHyperKernel(inputs, opcode, fieldType)   // Not tested XXX
       case op: FFT1DOp =>

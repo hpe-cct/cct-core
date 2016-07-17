@@ -21,7 +21,7 @@ import cogx.compiler.codegenerator.opencl.fragments.HyperKernel
 import cogx.compiler.codegenerator.opencl.hyperkernels._
 import cogx.compiler.parser.op._
 import cogx.parameters.Cog
-import cogx.platform.opencl.OpenCLPlatformParams
+import cogx.platform.opencl.OpenCLKernelCodeGenParams
 
 /** Optimizer of kernel DAGs that combined MatrixMatrixTransformHyperKernels and TensorTransposeHyperKernels
   *
@@ -78,12 +78,12 @@ object TransformTransposeOptimizer extends Optimizer {
 
   /** Merge all TransposeHyperKernels into neighboring MatrixMatrixTransformHyperKernels in `dag` when possible.
     *
-    * @param dag Kernel circuit to be optimized
-    * @param platformParams A bundle of platform parameters that affect kernel code generation and optimization.
-    * @param report True if verbosity is desired
-    * @return  The number of optimizations made
+    * @param dag Kernel circuit to be optimized.
+    * @param codeGenParams A bundle of device parameters that affect kernel code generation and optimization.
+    * @param report True if verbosity is desired.
+    * @return  The number of optimizations made.
     */
-  def optimize(dag: KernelCircuit, platformParams: OpenCLPlatformParams, report: Boolean = true) = {
+  def optimize(dag: KernelCircuit, codeGenParams: OpenCLKernelCodeGenParams, report: Boolean = true) = {
     val answer =
       if (!Enabled) {
         if (Cog.verboseOptimizer) {

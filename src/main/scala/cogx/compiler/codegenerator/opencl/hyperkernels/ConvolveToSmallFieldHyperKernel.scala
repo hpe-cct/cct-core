@@ -20,7 +20,7 @@ import cogx.compiler.codegenerator.opencl.fragments._
 import cogx.platform.types._
 import cogx.cogmath.algebra.real.Logarithm
 import cogx.compiler.parser.op._
-import cogx.platform.opencl.OpenCLPlatformParams
+import cogx.platform.opencl.OpenCLKernelCodeGenParams
 import cogx.cogmath.geometry.Shape
 import cogx.compiler.parser.op.ConvolveOp
 
@@ -46,7 +46,6 @@ import cogx.compiler.parser.op.ConvolveOp
   * the convolution is performed.
   *
   * @author Dick Carter
-  *
   * @param inputs The input and filter virtual field registers driving this kernel.
   * @param operation the opcode
   * @param resultType The FieldType of the result of this kernel.
@@ -282,12 +281,12 @@ class ConvolveToSmallFieldHyperKernel private (inputs: Array[VirtualFieldRegiste
     while (threadCount >= 2) {
       val midPoint = threadCount / 2
       if (localWorkSize >= threadCount) {
-        if (midPoint >= params.platformParams.warpSize)
+        if (midPoint >= params.codeGenParams.warpSize)
           code.append(s"            if (threadIndex < $midPoint) {\n")
         code.append(s"                reductionMem[threadIndex] = reductionMem[threadIndex] + reductionMem[threadIndex + $midPoint];\n")
-        if (midPoint > platformParams.warpSize || midPoint == 1)
+        if (midPoint > codeGenParams.warpSize || midPoint == 1)
           code.append("            }\n")
-        if (midPoint > platformParams.warpSize)
+        if (midPoint > codeGenParams.warpSize)
           code.append("            barrier(CLK_LOCAL_MEM_FENCE);\n")
       }
       threadCount /= 2
@@ -356,19 +355,19 @@ class ConvolveToSmallFieldHyperKernel private (inputs: Array[VirtualFieldRegiste
   * @param inputs The input and filter virtual field registers driving this kernel.
   * @param operation the opcode
   * @param resultType The FieldType of the result of this kernel.
-  * @param platformParams A bundle of platform parameters that affect kernel code generation and optimization.
+  * @param codeGenParams A bundle of device parameters that affect kernel code generation and optimization.
   */
 private[cogx]
 class ConvolutionToSmallFieldParams (inputs: Array[VirtualFieldRegister],
-                                              operation: ConvolveOp,
-                                              resultType: FieldType,
-                                              val platformParams: OpenCLPlatformParams,
-                                              filterVolumeMultiplier: Int = 1,
-                                              numFilterMemories: Int = 1,
-                                              numResultMemories: Int = 0,
-                                              miniTileRows: Int = 1,
-                                              _localColumns: Int = HyperKernel.DefaultLocalColumns,
-                                              _localRows: Int = HyperKernel.DefaultLocalRows)
+                                     operation: ConvolveOp,
+                                     resultType: FieldType,
+                                     val codeGenParams: OpenCLKernelCodeGenParams,
+                                     filterVolumeMultiplier: Int = 1,
+                                     numFilterMemories: Int = 1,
+                                     numResultMemories: Int = 0,
+                                     miniTileRows: Int = 1,
+                                     _localColumns: Int = HyperKernel.DefaultLocalColumns,
+                                     _localRows: Int = HyperKernel.DefaultLocalRows)
         extends  Logarithm
 {
   import ConvolveHyperKernel._
@@ -431,7 +430,7 @@ class ConvolutionToSmallFieldParams (inputs: Array[VirtualFieldRegister],
   var localLayers = 1
   var groupSize = localColumns * localRows * localLayers
 
-  val localMemBytesAvailable = platformParams.localMemSize
+  val localMemBytesAvailable = codeGenParams.localMemSize
 
   /** Given a dimension of the workgroup in the pre-sampled filter (2nd input)
    * space, what is the maximum input dimension that the workgroup needs to access.
@@ -558,7 +557,7 @@ object ConvolveToSmallFieldHyperKernel {
     */
   def apply(inputs: Array[VirtualFieldRegister], operation: ConvolveOp,
             resultType: FieldType,
-            platformParams: OpenCLPlatformParams): HyperKernel = {
+            platformParams: OpenCLKernelCodeGenParams): HyperKernel = {
 
     // This kernel performs the convolution as separate convolutions of tiles
     // of the 2nd "filter" input.  As such, it does not produce a fully reduced

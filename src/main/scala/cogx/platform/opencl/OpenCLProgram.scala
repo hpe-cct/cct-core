@@ -36,8 +36,8 @@ class OpenCLProgram(device: OpenCLDevice) {
   private val sources = Set[KernelSourceCode]()
   /** OpenCL compilation options. */
   private val buildOptions = "-cl-mad-enable -cl-no-signed-zeros" +
-          (if (platform.isAMD) " -w" else "") +
-          (if (platform.isNVidia) " -cl-nv-verbose" else "")
+          (if (device.isAMD) " -w" else "") +
+          (if (device.isNVidia) " -cl-nv-verbose" else "")
   /** The context of this program. */
   private def clContext = platform.clContext
   /** The underlying OpenCL resource for this device. */
@@ -99,12 +99,12 @@ class OpenCLProgram(device: OpenCLDevice) {
         // has already compiled (with identical compiler args) under ~/.nv
         // Thus, to ensure compilation, we must nuke the directory.
         val binaryCache = OpenCLNvidia.binaryCacheDirectory
-        if (Cog.deleteProgramCache && platform.isNVidia && binaryCache != null) {
+        if (Cog.deleteProgramCache && device.isNVidia && binaryCache != null) {
           println("    Deleting " + binaryCache +
                   " to force OpenCL kernel compilation.")
           DeleteDirectory(binaryCache)
         }
-        if (platform.isNVidia)
+        if (device.isNVidia)
           OpenCLNvidia.checkEnvironmentVariablesForLD_PRELOAD()
         try {
           if (Cog.verboseOpenCLPlatform) {

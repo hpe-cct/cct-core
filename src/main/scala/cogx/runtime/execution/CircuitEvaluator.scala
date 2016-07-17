@@ -108,12 +108,10 @@ class CircuitEvaluator(circuit: KernelCircuit, platform: OpenCLPlatform, mode: A
   private var myActor: ActorRef = null
 
   /** Flag recording an implicit reset, so we know to ignore an explicit one that follows. */
-  private var lastCommandWasImplicitReset = false
+  private var circuitHasBeenReset = false
 
-  // We must reset the computation to put it in a valid initial state,
-  // even though the user has not directed us to do so explicitly.
-  reset
-  lastCommandWasImplicitReset = true
+  // We no longer reset the computation implicitly to put it in a valid initial state.
+  // Instead, we wait for the first user command and (if it's not a reset) perform an implicit reset then.
 
   /** Reset the computation to an initial state defined by the user
     * (synchronous call).
@@ -125,20 +123,19 @@ class CircuitEvaluator(circuit: KernelCircuit, platform: OpenCLPlatform, mode: A
     */
   @throws(classOf[Exception])
   def reset: Long = {
-    // Don't bother to perform the reset, we just did one as part of initialization!
-    if (!lastCommandWasImplicitReset) {
-      running = false
-      time = 0L
-      val future = clusterSupervisor ? Reset
-      Await.result(future, resetTimeout.duration) match {
-        case ResetDone(e) => e match {
-          case Some(exception) => throw exception
-          case None =>
-        }
-        case x => throw new RuntimeException("Unexpected message: " + x)
+    running = false
+    time = 0L
+    val future = clusterSupervisor ? Reset
+    Await.result(future, resetTimeout.duration) match {
+      case ResetDone(e) => e match {
+        case Some(exception) =>
+          println(s"CircuitEvaluator sees error in Reset: $exception")
+          throw exception
+        case None =>
       }
+      case x => throw new RuntimeException("Unexpected message: " + x)
     }
-    lastCommandWasImplicitReset = false
+    circuitHasBeenReset = true
     time
   }
 
@@ -149,12 +146,15 @@ class CircuitEvaluator(circuit: KernelCircuit, platform: OpenCLPlatform, mode: A
     */
   @throws(classOf[Exception])
   def step: Long = {
-    lastCommandWasImplicitReset = false
+    if (!circuitHasBeenReset)
+      reset
     val future = clusterSupervisor ? Step
     try {
       Await.result(future, timeout.duration) match {
         case StepDone(e) => e match {
-          case Some(exception) => throw exception
+          case Some(exception) =>
+            println(s"CircuitEvaluator sees error in Step: $exception")
+            throw exception
           case None => time += 1
         }
         case x => throw new Exception("Unexpected message: " + x)
@@ -174,7 +174,6 @@ class CircuitEvaluator(circuit: KernelCircuit, platform: OpenCLPlatform, mode: A
     */
   @throws(classOf[Exception])
   def step(count: Long): Long = {
-    lastCommandWasImplicitReset = false
     for (i <- 0L until count)
       step
     time
@@ -182,7 +181,6 @@ class CircuitEvaluator(circuit: KernelCircuit, platform: OpenCLPlatform, mode: A
 
   /** Start the computation running until `stop` is called (asynchronous call) */
   def run {
-    lastCommandWasImplicitReset = false
     running = true
     myActor ! Run
   }
@@ -195,7 +193,6 @@ class CircuitEvaluator(circuit: KernelCircuit, platform: OpenCLPlatform, mode: A
   /** Stop the computation, returning the simulation time (synchronous call). */
   @throws(classOf[Exception])
   def stop: Long = {
-    lastCommandWasImplicitReset = false
     running = false
     time
   }
@@ -223,7 +220,8 @@ class CircuitEvaluator(circuit: KernelCircuit, platform: OpenCLPlatform, mode: A
                 to: AbstractFieldMemory,
                 done: (AbstractFieldMemory) => Unit)
   {
-    lastCommandWasImplicitReset = false
+    if (!circuitHasBeenReset)
+      reset
     val kernel = virtualFieldRegister.source
     val kernelOutput = virtualFieldRegister.sourceOutputIndex match {
       case Some(i) => i
@@ -264,7 +262,8 @@ class CircuitEvaluator(circuit: KernelCircuit, platform: OpenCLPlatform, mode: A
   def readField(virtualFieldRegister: VirtualFieldRegister,
                 done: (AbstractFieldMemory) => Unit)
   {
-    lastCommandWasImplicitReset = false
+    if (!circuitHasBeenReset)
+      reset
     val kernel = virtualFieldRegister.source
     val kernelOutput = virtualFieldRegister.sourceOutputIndex match {
       case Some(i) => i
