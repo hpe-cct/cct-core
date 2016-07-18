@@ -18,6 +18,7 @@ package cogx.runtime.singlegpu
 
 import scala.language.reflectiveCalls
 import cogx.cogmath.geometry.Shape
+import cogx.parameters.Cog
 import org.scalatest.junit.JUnitRunner
 import org.junit.runner.RunWith
 import org.scalatest.MustMatchers
@@ -115,20 +116,33 @@ class CopyEngineSpec extends FunSuite with MustMatchers {
     bandwidth
   }
 
+  /** Pinned buffer transfers caused JVM crashes on AMD GPUs with APPSDK 2.9.1.  Bypass until qualified. */
+  def runIfQualified(f: => Unit): Unit = {
+    if (OpenCLPlatform().devices(0).isNVidia || Cog.pinnedBuffers) {
+      f
+    }
+    else
+      println("Test is currently bypassed on this platform.")
+  }
+
   /** Measure the transfer bandwidth of pinned cpu memory to gpu memory. */
   test("CPU pinned memory -> GPU copy performance") {
-    // Do it once as a warm-up
-    unidirectionalCopyTest(PinnedDirectBuffer, CPUtoGPU)
-    val bandwidth = unidirectionalCopyTest(PinnedDirectBuffer, CPUtoGPU)
-    println(f"CPU pinned   -> GPU data xfer BW measured at $bandwidth%5.2f GB/sec")
+    runIfQualified {
+      // Do it once as a warm-up
+      unidirectionalCopyTest(PinnedDirectBuffer, CPUtoGPU)
+      val bandwidth = unidirectionalCopyTest(PinnedDirectBuffer, CPUtoGPU)
+      println(f"CPU pinned   -> GPU data xfer BW measured at $bandwidth%5.2f GB/sec")
+    }
   }
 
   /** Measure the transfer bandwidth of gpu memory to pinned cpu memory. */
   test("GPU -> CPU pinned memory copy performance") {
-    // Do it once as a warm-up
-    unidirectionalCopyTest(PinnedDirectBuffer, GPUtoCPU)
-    val bandwidth = unidirectionalCopyTest(PinnedDirectBuffer, GPUtoCPU)
-    println(f"GPU -> CPU pinned   data xfer BW measured at $bandwidth%5.2f GB/sec")
+    runIfQualified {
+      // Do it once as a warm-up
+      unidirectionalCopyTest(PinnedDirectBuffer, GPUtoCPU)
+      val bandwidth = unidirectionalCopyTest(PinnedDirectBuffer, GPUtoCPU)
+      println(f"GPU -> CPU pinned   data xfer BW measured at $bandwidth%5.2f GB/sec")
+    }
   }
 
   /** Measure the transfer bandwidth of pageable cpu memory to gpu memory. */
@@ -222,18 +236,22 @@ class CopyEngineSpec extends FunSuite with MustMatchers {
 
   /** Measure the bidirectional transfer bandwidth of gpu memory to pinned cpu memory via 2 simultaneous transfers. */
   test("GPU <-> CPU pinned memory copy performance") {
-    // Do it once as a warm-up
-    concurrentBidirectionalCopyTest(PinnedDirectBuffer, true)
-    val bandwidth = concurrentBidirectionalCopyTest(PinnedDirectBuffer, true)
-    println(f"CPU pinned   <-> GPU aggregate data xfer BW measured at $bandwidth%5.2f GB/sec (two command queues)")
+    runIfQualified {
+      // Do it once as a warm-up
+      concurrentBidirectionalCopyTest(PinnedDirectBuffer, true)
+      val bandwidth = concurrentBidirectionalCopyTest(PinnedDirectBuffer, true)
+      println(f"CPU pinned   <-> GPU aggregate data xfer BW measured at $bandwidth%5.2f GB/sec (two command queues)")
+    }
   }
 
   /** Measure the bidirectional transfer bandwidth of gpu memory to pinned cpu memory via 2 simultaneous transfers. */
   test("GPU <-> CPU pinned memory copy performance one command queue") {
-    // Do it once as a warm-up
-    concurrentBidirectionalCopyTest(PinnedDirectBuffer, false)
-    val bandwidth = concurrentBidirectionalCopyTest(PinnedDirectBuffer, false)
-    println(f"CPU pinned   <-> GPU aggregate data xfer BW measured at $bandwidth%5.2f GB/sec (one command queue)")
+    runIfQualified {
+      // Do it once as a warm-up
+      concurrentBidirectionalCopyTest(PinnedDirectBuffer, false)
+      val bandwidth = concurrentBidirectionalCopyTest(PinnedDirectBuffer, false)
+      println(f"CPU pinned   <-> GPU aggregate data xfer BW measured at $bandwidth%5.2f GB/sec (one command queue)")
+    }
   }
 
   /** Measure the bidirectional transfer bandwidth of gpu memory to pinned cpu memory via 2 simultaneous transfers. */

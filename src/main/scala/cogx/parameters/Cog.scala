@@ -79,8 +79,8 @@ object Cog {
   var outOfOrderExecution = setBoolean("outOfOrderExecution")
   /** Enable virtual field registers to share OpenCl buffers */
   val bufferSharing = setBoolean("bufferSharing", default=true)
-  /** Enable cpu DirectBuffer memory to be pinned. */
-  val pinnedBuffers = setBoolean("pinnedBuffers", default=true)
+  /** Enable cpu DirectBuffer memory to be pinned. Only verified to work with NVidia, so leave off by default. */
+  val pinnedBuffers = setBoolean("pinnedBuffers", default=false)
   /** Enable warning about user CPU Operators having apply() invoked multiple times- bad if they have mutable state. */
   val checkUserOperators = setBoolean("checkUserOperators", default=true)
   /** The InOrderSharedLatchAllocator before Cog 4.3.6 mishandled some models.  Alert the user if they were effected. */

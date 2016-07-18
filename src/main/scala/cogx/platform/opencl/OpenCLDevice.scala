@@ -66,15 +66,15 @@ class OpenCLDevice private[opencl](val clDevice: CLDevice,
   def vendor: String = clDevice.getVendor()
 
   /** Return true if this is an NVidia OpenCL platform. */
-  private[opencl] def isNVidia =
+  def isNVidia =
     vendor.toLowerCase.contains("nvidia")
 
   /** Return true if this is an Intel OpenCL platform. */
-  private[opencl] def isIntel =
+  def isIntel =
     vendor.toLowerCase.contains("intel")
 
   /** Return true if this is an AMD OpenCL platform. */
-  private[opencl] def isAMD =
+  def isAMD =
     vendor.toLowerCase.contains("advanced micro devices")
 
   /** Function for getting around an apparent bug in AMD's implementation of

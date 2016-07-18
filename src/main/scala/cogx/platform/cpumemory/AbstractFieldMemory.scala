@@ -122,7 +122,11 @@ abstract class AbstractFieldMemory(fieldType: FieldType, val bufferType: BufferT
     val buf: CLBuffer[_] = context.createBuffer(bytes, Mem.ALLOCATE_BUFFER)
     val byteBuffer = commandQueue.putMapBuffer(buf, Map.READ_WRITE)
     // Now that we have coaxed the system into creating a pinned ByteBuffer,
-    // we can throw away the CLBuffer (freeing its implied global memory allocation).
+    // we can throw away the CLBuffer (freeing its implied GPU global memory allocation).
+
+    // Update: the following approach causes JVM crashes on the AMDSDK 2.9.1.  No crashes
+    // are seen if the buffer is not released, so it seems that the CLBuffer.release may
+    // be affecting the associated ByteBuffer.  Further study is needed.
     buf.release
     byteBuffer
   }
