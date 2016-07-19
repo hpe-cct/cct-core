@@ -123,7 +123,9 @@ class CircuitEvaluator(circuit: KernelCircuit, platform: OpenCLPlatform, mode: A
     */
   @throws(classOf[Exception])
   def reset: Long = {
-    running = false
+    // If this is a reset issued implicitly (by an initial Run, say), do not set running = false
+    if (circuitHasBeenReset)
+      running = false
     time = 0L
     val future = clusterSupervisor ? Reset
     Await.result(future, resetTimeout.duration) match {

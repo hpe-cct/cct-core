@@ -38,8 +38,7 @@ class CircuitEvaluatorSpec
         with MustMatchers
         with ImplicitConversions
 {
-  /** Test ComputeGraph.step and ComputeGraph.step(N)
-    */
+  /** Test ComputeGraph.step and ComputeGraph.step(N) */
   test("ComputeGraph step and step(N)") {
 
     val cg = new ComputeGraph{
@@ -69,9 +68,41 @@ class CircuitEvaluatorSpec
       cg.release
   }
 
-  /** Test ComputeGraph.stop and ComputeGraph.run
-    */
-  test("ComputeGraph stop and run") {
+  /** Test ComputeGraph.run */
+  test("ComputeGraph run") {
+
+    val cg = new ComputeGraph{
+      val counter = ScalarField(0f)
+      counter <== counter + 1f
+    }
+
+    var time = 0L
+    def setTime(newTime: Long) { time = newTime }
+
+    // 200msec delays allow simulation to run and also give time for the
+    // asynchronous cg.time(callback) to set the local time variable
+    try {
+      cg.time(setTime)
+      Thread.sleep(200)
+      require(time == 0, "Time should be 0, saw " + time)
+
+      cg.run
+
+      Thread.sleep(200)
+
+      cg.stop
+
+      cg.time(setTime)
+      Thread.sleep(200)
+      require(time > 10, "Time should be greater than 10, saw " + time)
+
+    }
+    finally
+      cg.release
+  }
+
+  /** Test ComputeGraph.step followed by ComputeGraph.run */
+  test("ComputeGraph step, then run") {
 
     val cg = new ComputeGraph{
       val counter = ScalarField(0f)
@@ -103,8 +134,8 @@ class CircuitEvaluatorSpec
     finally
       cg.release
   }
-  /** Test ComputeGraph.stop and ComputeGraph.run of multiple ComputeGraphs.
-    */
+
+  /** Test ComputeGraph.stop and ComputeGraph.run of multiple ComputeGraphs. */
   test("Multiple ComputeGraph stop and run") {
     // Helper function to create a series of unmergeable kernels
     def flipN(f: ScalarField, numFlips: Int): ScalarField = {
