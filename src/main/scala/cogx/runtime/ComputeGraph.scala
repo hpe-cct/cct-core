@@ -85,7 +85,14 @@ class ComputeGraph(val optimize: Boolean = true,
   private var restoredSyntaxTree: SyntaxTree = null
 
   /** Circuit of kernels compiled from syntaxTree. */
-  private lazy val circuit = if (restoredFromFile) restoredCircuit else compileCircuit(syntaxTree)
+  private lazy val circuit = {
+    if (restoredFromFile)
+      restoredCircuit
+    else {
+      syntaxTree.seal
+      compileCircuit(syntaxTree)
+    }
+  }
 
   /** Optimized circuit that exposes only probed fields (for debugger). */
   lazy val probedCircuit = new ProbedCircuit(circuit)
@@ -699,18 +706,10 @@ object ComputeGraph extends RestoreFactory {
     val cg = new ComputeGraph()
     cg.restoredFromFile = true
     cg.restoredCircuit = restoredCircuit
+    // Preclude adding more fields to this restored ComputeGraph- it's mostly a compiled KernelCircuit already.
+    restoredSyntaxTree.seal
     cg.restoredSyntaxTree = restoredSyntaxTree
     cg.computeGraphName = name
-    // Preclude adding more fields to this restored ComputeGraph (which holds only the KernelCircuit) by calling reset.
-    // If the reset throws an exception, we can ignore it- a subsequent reset or step by the user will rethrow it.
-    // We don't want to throw the exception here because we prefer to return the ComputeGraph to the user so he/she
-    // will manipulate it within a cg.withRelease { ... } block, which will clean up OpenCL resources and Actor threads.
-    try {
-      cg.reset
-    }
-    catch {
-      case e: Exception =>
-    }
     cg
   }
 }

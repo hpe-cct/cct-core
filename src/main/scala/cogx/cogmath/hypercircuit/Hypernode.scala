@@ -76,8 +76,13 @@ private [cogx] abstract class Hypernode[T <: Hypernode[T]](private val inputEdge
   val circuit: Hypercircuit[T] =
     if (inputEdges.length == 0)
       Hypercircuit.add(me)
-    else
+    else {
+      for (inputEdge <- inputEdges)
+        if (inputEdge.source.circuit.isSealed)
+          throw new RuntimeException(s"Attempted addition of node $this to a Hypercircuit after it has been 'sealed'.")
       inputEdges(0).source.circuit
+    }
+
 
   /** Check if node is dead (removed from circuit). */
   def isDead: Boolean = dead

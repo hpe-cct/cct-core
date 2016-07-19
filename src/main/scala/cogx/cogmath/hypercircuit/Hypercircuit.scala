@@ -51,6 +51,15 @@ private [cogx] class Hypercircuit[T <: Hypernode[T]] {
     stolenOutputMap(from) = newOwner
   }
 
+  /** Flag stating that no addional nodes can be added to the circuit. */
+  private[hypercircuit] var _sealed = false
+
+  /** True if no nodes can be added to the circuit. */
+  def isSealed = synchronized(_sealed)
+
+  /** Ensure that no additional nodes can be added to the circuit. */
+  def seal: Unit = synchronized(_sealed = true)
+
   /** Find the edge which has stolen the sinks of another edge.
     *
     * If the output has been stolen multiple times, it tracks that and returns
@@ -211,6 +220,8 @@ private[cogx] object Hypercircuit {
   def add[T <: Hypernode[T]](node: T): Hypercircuit[T] = {
     if (current == null)
       current = new Hypercircuit[T]
+    if (current.isSealed)
+      throw new RuntimeException(s"Attempted addition of node $node to a Hypercircuit after it has been 'sealed'.")
     if (node.inputs.length == 0)
       current.asInstanceOf[Hypercircuit[T]].addInput(node)
     current.asInstanceOf[Hypercircuit[T]]
