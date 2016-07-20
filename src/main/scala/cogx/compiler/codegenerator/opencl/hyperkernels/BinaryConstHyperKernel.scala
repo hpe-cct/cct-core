@@ -16,10 +16,10 @@
 
 package cogx.compiler.codegenerator.opencl.hyperkernels
 
-import cogx.compiler.codegenerator.opencl.fragments.{AddressingMode, HyperKernel}
-import cogx.compiler.parser.op.BinaryConstOpcode
+import cogx.compiler.codegenerator.opencl.fragments.{AddressingMode, HyperKernel, SmallTensorAddressing, TensorElementAddressing}
+import cogx.compiler.parser.op.{BinaryConstOpcode, BinaryConstOpcodeNeedingVectorLength}
 import cogx.compiler.codegenerator.opencl.OpcodeToFunction
-import cogx.platform.types.{VirtualFieldRegister, FieldType}
+import cogx.platform.types.{FieldType, VirtualFieldRegister}
 
 /**
   * A hyperkernel that combines a field with a real constant.
@@ -38,8 +38,18 @@ class BinaryConstHyperKernel private (in: Array[VirtualFieldRegister],
                                                addressMode: AddressingMode)
         extends HyperKernel(operation, in, resultType, addressMode)
 {
-  addCode("    @out0 = " +
-    OpcodeToFunction(operation) + "(read(@in0), " + operation.const + "f);\n")
+  opcode match {
+    case x: BinaryConstOpcodeNeedingVectorLength =>
+      val vectorElemsPerThread =
+        addressMode match {
+          case SmallTensorAddressing => resultType.tensorShape.points
+          case TensorElementAddressing => 1
+          case _ => throw new RuntimeException(s"Internal error: unexpected addressing mode $addressMode")
+        }
+      addCode(s"    @out0 = ${OpcodeToFunction(operation)}(read(@in0), ${operation.const}f, $vectorElemsPerThread);")
+    case _ =>
+      addCode(s"    @out0 = ${OpcodeToFunction(operation)}(read(@in0), ${operation.const}f);")
+  }
   //debugCompile
 }
 

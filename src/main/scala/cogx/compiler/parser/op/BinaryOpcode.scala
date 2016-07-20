@@ -26,6 +26,9 @@ import cogx.cogmath.geometry.Shape
 private[cogx]
 sealed abstract class BinaryOpcode(name: String = "") extends Opcode(name)
 
+/** Binary opcodes whose implementation of OpcodeToFunction(op) requires a vector length as a 3rd parameter. */
+private[cogx] sealed abstract class BinaryOpcodeNeedingVectorLength(name: String = "") extends BinaryOpcode(name)
+
 /** Add two fields, tensor by tensor. */
 private[cogx] case object AddOp                     extends BinaryOpcode
 private[cogx] case object Atan2Op                   extends BinaryOpcode
@@ -88,12 +91,12 @@ private[cogx] case class ConvolveColumns2DOp(borderPolicy:BorderPolicy,
 private[cogx] case object CrossDotOp                extends BinaryOpcode
 /** Divide two fields, tensor by tensor. */
 private[cogx] case object DivideOp                  extends BinaryOpcode
-private[cogx] case object EqualsOp                  extends BinaryOpcode
-private[cogx] case object GreaterThanEqualsOp       extends BinaryOpcode
-private[cogx] case object GreaterThanOp             extends BinaryOpcode
+private[cogx] case object EqualsOp                  extends BinaryOpcodeNeedingVectorLength
+private[cogx] case object GreaterThanEqualsOp       extends BinaryOpcodeNeedingVectorLength
+private[cogx] case object GreaterThanOp             extends BinaryOpcodeNeedingVectorLength
 private[cogx] case object JoinOp                    extends BinaryOpcode
-private[cogx] case object LessThanEqualsOp          extends BinaryOpcode
-private[cogx] case object LessThanOp                extends BinaryOpcode
+private[cogx] case object LessThanEqualsOp          extends BinaryOpcodeNeedingVectorLength
+private[cogx] case object LessThanOp                extends BinaryOpcodeNeedingVectorLength
 private[cogx] case class MatrixTransformMatrixOp(
                            transposeIn1: Boolean = false,
                            transposeIn2: Boolean = false) extends BinaryOpcode
@@ -103,7 +106,7 @@ private[cogx] case object MinOp                     extends BinaryOpcode
 private[cogx] case object ModuloOp                  extends BinaryOpcode
 /** Multiply two fields, tensor by tensor. */
 private[cogx] case object MultiplyOp                extends BinaryOpcode
-private[cogx] case object NotEqualsOp               extends BinaryOpcode
+private[cogx] case object NotEqualsOp               extends BinaryOpcodeNeedingVectorLength
 private[cogx] case object OuterProductOp            extends BinaryOpcode
 /** Push an N-D frame onto an (N + 1)-D field. Used for temporal processing. */
 private[cogx] case object PushOp                    extends BinaryOpcode

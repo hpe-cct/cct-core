@@ -44,82 +44,74 @@ object CogCLFunctions {
     * already defined so we don't need the cl_khr_fp64 extension.
     */
   val real =
-      "#ifdef _AMD_OPENCL\n" +
-        "  #define signum(a) (select((typeof(a)) 0.0f, 1.0f, (a) > 0.0f) - select((typeof(a)) 0.0f, 1.0f, (a) < 0.0f))\n" +
-        "  #define greaterThan(a, b) select((typeof(a)) 0.0f, (typeof(b)) 1.0f, isgreater(a, b))\n" +
-        "  #define greaterThanEqual(a, b) select((typeof(a)) 0.0f, (typeof(b)) 1.0f, isgreaterequal(a, b))\n" +
-        "  #define lessThan(a, b) select((typeof(a)) 0.0f, (typeof(b)) 1.0f, isless(a, b))\n" +
-        "  #define lessThanEqual(a, b) select((typeof(a)) 0.0f, (typeof(b)) 1.0f, islessequal(a, b))\n" +
-        "  #define equals(a, b) select((typeof(a)) 0.0f, (typeof(b)) 1.0f, isequal(a, b))\n" +
-        "  #define notEquals(a, b) select((typeof(a)) 0.0f, (typeof(b)) 1.0f, isnotequal(a, b))\n" +
-      "#else\n" +
-        "  #define signum(a) (fabs(convert_float((a) > 0.0f)) - fabs(convert_float((a) < 0.0f)))\n" +
-        "  #define greaterThan(a, b) fabs(convert_float(isgreater(a, b)))\n" +
-        "  #define greaterThanEqual(a, b) fabs(convert_float(isgreaterequal(a, b)))\n" +
-        "  #define lessThan(a, b) fabs(convert_float(isless(a, b)))\n" +
-        "  #define lessThanEqual(a, b) fabs(convert_float(islessequal(a, b)))\n" +
-        "  #define equals(a, b) fabs(convert_float(isequal(a, b)))\n" +
-        "  #define notEquals(a, b) fabs(convert_float(isnotequal(a, b)))\n" +
-      "#endif /* _AMD_OPENCL */\n" +
-      "#define add(a, b) ((a) + (b))\n" +
-      "#define subtract(a, b) ((a) - (b))\n" +
-      "#define multiply(a, b) ((a) * (b))\n" +
-      "#define divide(a, b) ((a) / (b))\n" +
-      "#define reciprocal(a) (1.0f / (a))\n" +
-      "#define sq(a) ((a) * (a))\n" +
-      "#define rectify(a) (fmax((a), 0.0f))\n" +
-      "#define negate(a) ((a) * -1.0f)\n" +
-      "#define copy(a) (a)\n" +
-      "#define threshold(a, thresh) ((float)((a) > (thresh)))\n" +
-      "#define imageAdd(a, b) ((float4) ((a).x + b, (a).y + b, (a).z + b, 1.0f))\n" +
-      "#define imageSubtract(a, b) ((float4) ((a).x - b, (a).y - b, (a).z - b, 1.0f))\n" +
-      "#define imageMultiply(a, b) ((float4) ((a).x * b, (a).y * b, (a).z * b, 1.0f))\n" +
-      "#define imageDivide(a, b) ((float4) ((a).x / b, (a).y / b, (a).z / b, 1.0f))\n" +
-      "#define greaterThanFloat4(a, b) ((float4)((float)((a).x > (b).x), (float)((a).y > (b).y), (float)((a).z > (b).z), 1.0f))\n" +
-      "#define greaterThanEqualFloat4(a, b) ((float4)((float)((a).x >= (b).x), (float)((a).y >= (b).y), (float)((a).z >= (b).z), 1.0f))\n" +
-      "#define lessThanFloat4(a, b) ((float4)((float)((a).x < (b).x), (float)((a).y < (b).y), (float)((a).z < (b).z), 1.0f))\n" +
-      "#define lessThanEqualFloat4(a, b) ((float4)((float)((a).x <= (b).x), (float)((a).y <= (b).y), (float)((a).z <= (b).z), 1.0f))\n" +
-      "#define equalsFloat4(a, b) ((float4)((float)((a).x == (b).x), (float)((a).y == (b).y), (float)((a).z == (b).z), 1.0f))\n" +
-      "#define notEqualsFloat4(a, b) ((float4)((float)((a).x != (b).x), (float)((a).y != (b).y), (float)((a).z != (b).z), 1.0f))\n" +
-      "#define greaterThanConstFloat4(a, b) ((float4)((float)((a).x > (b)), (float)((a).y > (b)), (float)((a).z > (b)), 1.0f))\n" +
-      "#define greaterThanEqualConstFloat4(a, b) ((float4)((float)((a).x >= (b)), (float)((a).y >= (b)), (float)((a).z >= (b)), 1.0f))\n" +
-      "#define lessThanConstFloat4(a, b) ((float4)((float)((a).x < (b)), (float)((a).y < (b)), (float)((a).z < (b)), 1.0f))\n" +
-      "#define lessThanEqualConstFloat4(a, b) ((float4)((float)((a).x <= (b)), (float)((a).y <= (b)), (float)((a).z <= (b)), 1.0f))\n" +
-      "#define equalsConstFloat4(a, b) ((float4)((float)((a).x == (b)), (float)((a).y == (b)), (float)((a).z == (b)), 1.0f))\n" +
-      "#define notEqualsConstFloat4(a, b) ((float4)((float)((a).x != (b)), (float)((a).y != (b)), (float)((a).z != (b)), 1.0f))\n" +
-      "#ifndef M_PI\n" +
-      "#define M_PI (3.14159265359)\n" +
-      "#endif\n"
-
+    """|#define convert_float1(a) (convert_float(a))
+       |#define signum(a, s) (fabs(convert_float##s((a) > 0.0f)) - fabs(convert_float##s((a) < 0.0f)))
+       |#define greaterThan(a, b, s) fabs(convert_float##s(isgreater(a, b)))
+       |#define greaterThanEqual(a, b, s) fabs(convert_float##s(isgreaterequal(a, b)))
+       |#define lessThan(a, b, s) fabs(convert_float##s(isless(a, b)))
+       |#define lessThanEqual(a, b, s) fabs(convert_float##s(islessequal(a, b)))
+       |#define equals(a, b, s) fabs(convert_float##s(isequal(a, b)))
+       |#define notEquals(a, b, s) fabs(convert_float##s(isnotequal(a, b)))
+       |#define add(a, b) ((a) + (b))
+       |#define subtract(a, b) ((a) - (b))
+       |#define multiply(a, b) ((a) * (b))
+       |#define divide(a, b) ((a) / (b))
+       |#define reciprocal(a) (1.0f / (a))
+       |#define sq(a) ((a) * (a))
+       |#define rectify(a) (fmax((a), 0.0f))
+       |#define negate(a) ((a) * -1.0f)
+       |#define copy(a) (a)
+       |#define threshold(a, thresh) ((float)((a) > (thresh)))
+       |#define imageAdd(a, b) ((float4) ((a).x + b, (a).y + b, (a).z + b, 1.0f))
+       |#define imageSubtract(a, b) ((float4) ((a).x - b, (a).y - b, (a).z - b, 1.0f))
+       |#define imageMultiply(a, b) ((float4) ((a).x * b, (a).y * b, (a).z * b, 1.0f))
+       |#define imageDivide(a, b) ((float4) ((a).x / b, (a).y / b, (a).z / b, 1.0f))
+       |#define greaterThanFloat4(a, b) ((float4)((float)((a).x > (b).x), (float)((a).y > (b).y), (float)((a).z > (b).z), 1.0f))
+       |#define greaterThanEqualFloat4(a, b) ((float4)((float)((a).x >= (b).x), (float)((a).y >= (b).y), (float)((a).z >= (b).z), 1.0f))
+       |#define lessThanFloat4(a, b) ((float4)((float)((a).x < (b).x), (float)((a).y < (b).y), (float)((a).z < (b).z), 1.0f))
+       |#define lessThanEqualFloat4(a, b) ((float4)((float)((a).x <= (b).x), (float)((a).y <= (b).y), (float)((a).z <= (b).z), 1.0f))
+       |#define equalsFloat4(a, b) ((float4)((float)((a).x == (b).x), (float)((a).y == (b).y), (float)((a).z == (b).z), 1.0f))
+       |#define notEqualsFloat4(a, b) ((float4)((float)((a).x != (b).x), (float)((a).y != (b).y), (float)((a).z != (b).z), 1.0f))
+       |#define greaterThanConstFloat4(a, b) ((float4)((float)((a).x > (b)), (float)((a).y > (b)), (float)((a).z > (b)), 1.0f))
+       |#define greaterThanEqualConstFloat4(a, b) ((float4)((float)((a).x >= (b)), (float)((a).y >= (b)), (float)((a).z >= (b)), 1.0f))
+       |#define lessThanConstFloat4(a, b) ((float4)((float)((a).x < (b)), (float)((a).y < (b)), (float)((a).z < (b)), 1.0f))
+       |#define lessThanEqualConstFloat4(a, b) ((float4)((float)((a).x <= (b)), (float)((a).y <= (b)), (float)((a).z <= (b)), 1.0f))
+       |#define equalsConstFloat4(a, b) ((float4)((float)((a).x == (b)), (float)((a).y == (b)), (float)((a).z == (b)), 1.0f))
+       |#define notEqualsConstFloat4(a, b) ((float4)((float)((a).x != (b)), (float)((a).y != (b)), (float)((a).z != (b)), 1.0f))
+       |#ifndef M_PI
+       |#define M_PI (3.14159265359)
+       |#endif
+       |""".stripMargin
 
   /** Functions combining complex numbers to produce a complex result. */
   val complex =
-      "#define complexAdd(a,b) ((float2) ((a).x + (b).x, (a).y + (b).y))\n" +
-      "#define complexSubtract(a,b) ((float2) ((a).x - (b).x, (a).y - (b).y))\n" +
-      "#define complexMultiply(a,b) ((float2)(mad(-(a).y, (b).y, (a).x * (b).x), mad((a).y, (b).x, (a).x * (b).y)))\n" +
-      "#define complexDivide(a,b) ((float2) " +
-        "((((a).x * (b).x + (a).y * (b).y) / norm(b)), (((a).y * (b).x - (a).x * (b).y) / norm(b))))\n" +
-      "#define complexReciprocal(a) ((float2) ((((a).x) / norm(a)), ((-(a).y) / norm(a))) )\n" +
-      "#define complexAddReal(a,b) ((float2) ((a).x + b, (a).y))\n" +
-      "#define complexSubtractReal(a,b) ((float2) ((a).x - b, (a).y))\n" +
-      "#define complexMultiplyReal(a,b) ((float2) ((a).x * b, (a).y * b))\n" +
-      "#define complexDivideReal(a,b) ((float2) ((a).x / b, (a).y / b))\n" +
-      "#define conjTransp(a) ((float2)(-(a).y, (a).x))\n" +
-      "#define complexExp(a) ((float2) ( native_exp((a).x) * " +
-                                        "(float2) (native_cos((a).y),native_sin((a).y)) ))\n" +
-      "#define conjugate(a) ((float2)((a).x, -(a).y))\n"
+    """|#define complexAdd(a,b) ((float2) ((a).x + (b).x, (a).y + (b).y))
+       |#define complexSubtract(a,b) ((float2) ((a).x - (b).x, (a).y - (b).y))
+       |#define complexMultiply(a,b) ((float2)(mad(-(a).y, (b).y, (a).x * (b).x), mad((a).y, (b).x, (a).x * (b).y)))
+       |#define complexDivide(a,b) ((float2) ((((a).x * (b).x + (a).y * (b).y) / norm(b)), (((a).y * (b).x - (a).x * (b).y) / norm(b))))
+       |#define complexReciprocal(a) ((float2) ((((a).x) / norm(a)), ((-(a).y) / norm(a))) )
+       |#define complexAddReal(a,b) ((float2) ((a).x + b, (a).y))
+       |#define complexSubtractReal(a,b) ((float2) ((a).x - b, (a).y))
+       |#define complexMultiplyReal(a,b) ((float2) ((a).x * b, (a).y * b))
+       |#define complexDivideReal(a,b) ((float2) ((a).x / b, (a).y / b))
+       |#define conjTransp(a) ((float2)(-(a).y, (a).x))
+       |#define complexExp(a) ((float2) ( native_exp((a).x) * (float2) (native_cos((a).y),native_sin((a).y)) ))
+       |#define conjugate(a) ((float2)((a).x, -(a).y))
+       |""".stripMargin
 
   /**
    * Functions which convert complex numbers to real numbers.
    */
   val complexToReal =
-      "#define phase(a) (atan2((a).y, (a).x))\n" +
-      "#define norm(a) ((a).x * (a).x + (a).y * (a).y)\n" +
-      "#define magnitude(a) (native_sqrt(norm(a)))\n" +
-      "#define realPart(a) ((a).x)\n" +
-      "#define imaginaryPart(a) ((a).y)\n"
+    """|#define phase(a) (atan2((a).y, (a).x))
+       |#define norm(a) ((a).x * (a).x + (a).y * (a).y)
+       |#define magnitude(a) (native_sqrt(norm(a)))
+       |#define realPart(a) ((a).x)
+       |#define imaginaryPart(a) ((a).y)
+       |""".stripMargin
 
   /** Functions which convert real numbers to complex numbers. */
   val realToComplex =
-      "#define realToComplex(a) ((float2) ((a), 0.0f))\n"
+    """|#define realToComplex(a) ((float2) ((a), 0.0f))
+       |""".stripMargin
 }

@@ -119,9 +119,16 @@ class NonMaxSuppression2DHyperKernel private (in: VirtualFieldRegister,
         maximum = fmax(localImage[r][c++], maximum);
         column++;
                 """
-  code append """
+  val vectorElemsPerThread =
+    addressMode match {
+      case SmallTensorAddressing => resultType.tensorShape.points
+      case TensorElementAddressing => 1
+      case _ => throw new RuntimeException(s"Internal error: unexpected addressing mode $addressMode")
     }
-    @out0 = center * greaterThanEqual(center, maximum);
+
+  code append s"""
+    }
+    @out0 = center * greaterThanEqual(center, maximum, $vectorElemsPerThread);
 
 #undef halo
 #undef localWidth

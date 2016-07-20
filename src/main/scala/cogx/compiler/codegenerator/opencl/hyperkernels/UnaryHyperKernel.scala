@@ -16,10 +16,10 @@
 
 package cogx.compiler.codegenerator.opencl.hyperkernels
 
-import cogx.platform.types.{VirtualFieldRegister, FieldType}
-import cogx.compiler.codegenerator.opencl.fragments.{HyperKernel, AddressingMode}
+import cogx.platform.types.{FieldType, VirtualFieldRegister}
+import cogx.compiler.codegenerator.opencl.fragments.{AddressingMode, HyperKernel, SmallTensorAddressing, TensorElementAddressing}
 import cogx.compiler.codegenerator.opencl.OpcodeToFunction
-import cogx.compiler.parser.op.UnaryOpcode
+import cogx.compiler.parser.op.{UnaryOpcode, UnaryOpcodeNeedingVectorLength}
 
 /** Applies a unary operator on a field.
   *
@@ -36,7 +36,18 @@ class UnaryHyperKernel private (in: Array[VirtualFieldRegister],
                                 resultType: FieldType,
                                 addressMode: AddressingMode)
         extends HyperKernel(operation, in, resultType, addressMode) {
-  addCode("    @out0 = " + OpcodeToFunction(operation) + "(read(@in0));")
+  opcode match {
+    case x: UnaryOpcodeNeedingVectorLength =>
+      val vectorElemsPerThread =
+        addressMode match {
+          case SmallTensorAddressing => resultType.tensorShape.points
+          case TensorElementAddressing => 1
+          case _ => throw new RuntimeException(s"Internal error: unexpected addressing mode $addressMode")
+        }
+      addCode(s"    @out0 = ${OpcodeToFunction(operation)}(read(@in0), $vectorElemsPerThread);")
+    case _ =>
+      addCode(s"    @out0 = ${OpcodeToFunction(operation)}(read(@in0));")
+  }
 }
 
 /** Factory object for creating kernels of this type.

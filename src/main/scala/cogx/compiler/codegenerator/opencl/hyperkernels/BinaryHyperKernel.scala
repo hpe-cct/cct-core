@@ -16,10 +16,10 @@
 
 package cogx.compiler.codegenerator.opencl.hyperkernels
 
-import cogx.compiler.codegenerator.opencl.fragments.{AddressingMode, HyperKernel}
-import cogx.platform.types.{VirtualFieldRegister, FieldType}
+import cogx.compiler.codegenerator.opencl.fragments.{AddressingMode, HyperKernel, SmallTensorAddressing, TensorElementAddressing}
+import cogx.platform.types.{FieldType, VirtualFieldRegister}
 import cogx.compiler.codegenerator.opencl.OpcodeToFunction
-import cogx.compiler.parser.op.BinaryOpcode
+import cogx.compiler.parser.op.{BinaryOpcode, BinaryOpcodeNeedingVectorLength}
 import cogx.compiler.codegenerator.common.FieldPolicies._
 
 
@@ -106,8 +106,18 @@ class BinaryHyperKernel private (in: Array[VirtualFieldRegister],
     else
       "read(@in1)"
 
-  addCode("    @out0 = " + OpcodeToFunction(operation) +
-          "(" + readFirstField + ", " + readSecondField + ");")
+  opcode match {
+    case x: BinaryOpcodeNeedingVectorLength =>
+      val vectorElemsPerThread =
+        addressMode match {
+          case SmallTensorAddressing => resultType.tensorShape.points
+          case TensorElementAddressing => 1
+          case _ => throw new RuntimeException(s"Internal error: unexpected addressing mode $addressMode")
+        }
+      addCode(s"    @out0 = ${OpcodeToFunction(operation)}($readFirstField , $readSecondField, $vectorElemsPerThread);")
+    case _ =>
+      addCode(s"    @out0 = ${OpcodeToFunction(operation)}($readFirstField , $readSecondField);")
+  }
 //      debugCompile
 }
 
