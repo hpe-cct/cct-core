@@ -37,14 +37,16 @@ import cogx.platform.opencl.OpenCLEventCache._
   * by GPU kernels.
   *
   * @param device The device that the command queue controls.
-  * @param profile Enable kernel profiling.
+  * @param _profile Enable kernel profiling, if supported.
   *
   * @author Greg Snider and Dick Carter
   */
 private[cogx]
-class OpenCLParallelCommandQueue (device: OpenCLDevice, val profile: Boolean = true) {
+class OpenCLParallelCommandQueue (device: OpenCLDevice, _profile: Boolean = true) {
   /** Enable out-of-order execution in raw command queues. */
-  val outOfOrderExecution = Cog.outOfOrderExecution
+  val outOfOrderExecution = Cog.outOfOrderExecution && device.supportsOutOfOrderCommandQueues
+  /** Enable kernel profiling in raw command queues. */
+  val profile = _profile && device.supportsProfiledKernelExecution
   /** Command queue for GPU -> CPU copies (i.e. GPU reads). */
   private val readQueue = createCommandQueue()
   /** Command queue for CPU -> GPU copies (i.e. GPU writes). */

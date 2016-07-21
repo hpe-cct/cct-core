@@ -16,13 +16,14 @@
 
 package cogx.platform.opencl
 
-import com.jogamp.opencl.{CLDevice, CLEvent, CLEventList}
+import com.jogamp.opencl.{CLCommandQueue, CLDevice, CLEvent, CLEventList}
 import cogx.cogmath.collection.{IdentityHashSet, SynchronizedIdentityHashSet}
 import cogx.platform.types.FieldType
 import cogx.platform.cpumemory.{AbstractFieldMemory, BufferType}
 import cogx.parameters.Cog
 import com.jogamp.opencl.llb.CLDeviceBinding
 import cogx.platform.opencl.OpenCLEventCache._
+import com.jogamp.opencl.CLException.CLInvalidQueuePropertiesException
 
 /** Presents a simplified interface to an OpenCL device.
   *
@@ -144,6 +145,35 @@ class OpenCLDevice private[opencl](val clDevice: CLDevice,
   def maxMemAllocSize: Long = {
     clDevice.getMaxMemAllocSize
   }
+
+  /** Can the device execute kernels in parallel or out-of-order w.r.t. the CommandQueue enqueueing order? */
+  private[cogx] lazy val supportsOutOfOrderCommandQueues = {
+    try {
+      val queue = clDevice.createCommandQueue(CLCommandQueue.Mode.OUT_OF_ORDER_MODE)
+      queue.release()
+      true
+    }
+    catch {
+      case e: CLInvalidQueuePropertiesException =>
+        println(s"Warning: out-of-order command queue was requested- not supported on device $clDevice.")
+        false
+    }
+  }
+
+  /** Can the device measure kernel execution times? */
+  private[cogx] lazy val supportsProfiledKernelExecution = {
+    try {
+      val queue = clDevice.createCommandQueue(CLCommandQueue.Mode.PROFILING_MODE)
+      queue.release()
+      true
+    }
+    catch {
+      case e: CLInvalidQueuePropertiesException =>
+        println(s"Warning: profiled kernel execution was requested- not supported on device $clDevice.")
+        false
+    }
+  }
+
 
   /** A bundle of parameters that affect kernel code generation and optimization.  These values are
     * device-specific, so use these parameters only if the resulting kernel is guaranteed to be run
