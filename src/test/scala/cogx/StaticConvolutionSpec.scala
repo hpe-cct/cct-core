@@ -288,7 +288,8 @@ class StaticConvolutionSpec extends FunSuite
       val kernels = Array.tabulate(VectorSize) {
         i => TestScalarField(kernelMatrix + i/10f)
       }
-      val src = TestScalarField(RefScalarField.random(Rows, Columns))
+      // Adding a bias reduces the relative error, helping this test to pass on GPUs with low-end FP support.
+      val src = TestScalarField(RefScalarField.random(Rows, Columns)) + 1.0f
       val expectedSlicesOut = Array.tabulate(VectorSize) {
         i => convolve(src, kernels(i), BorderClamp)
       }
@@ -331,7 +332,8 @@ class StaticConvolutionSpec extends FunSuite
       val kernels = Array.tabulate(VectorSize) {
         i => TestScalarField(kernelMatrix + i/10f)
       }
-      val src = TestScalarField(RefScalarField.random(Rows, Columns))
+      // Adding a bias reduces the relative error, helping this test to pass on GPUs with low-end FP support.
+      val src = TestScalarField(RefScalarField.random(Rows, Columns)) + 1.0f
       val expectedSlicesOut = Array.tabulate(VectorSize) {
         i => convolve(src, kernels(i), BorderClamp)
       }
@@ -1382,8 +1384,9 @@ class StaticConvolutionSpec extends FunSuite
       val kernels = Array.tabulate(VectorSize) {
         i => TestScalarField(kernelMatrix + i/10f)
       }
+      // Adding a bias reduces the relative error, helping this test to pass on GPUs with low-end FP support.
       val slices = Array.tabulate(VectorSize) {
-        (i) => TestScalarField(RefScalarField.random(Rows, Columns))
+        (i) => TestScalarField(RefScalarField.random(Rows, Columns)) + 1.0f
       }
       val expectedSlicesOut = Array.tabulate(VectorSize) {
         i => convolve(slices(i), kernels(i), BorderClamp)
@@ -1428,8 +1431,9 @@ class StaticConvolutionSpec extends FunSuite
       val kernels = Array.tabulate(VectorSize) {
         i => TestScalarField(kernelMatrix + i/10f)
       }
+      // Adding a bias reduces the relative error, helping this test to pass on GPUs with low-end FP support.
       val slices = Array.tabulate(VectorSize) {
-        (i) => TestScalarField(RefScalarField.random(Rows, Columns))
+        (i) => TestScalarField(RefScalarField.random(Rows, Columns)) + 1.0f
       }
       val expectedSlicesOut = Array.tabulate(VectorSize) {
         i => convolve(slices(i), kernels(i), BorderClamp)

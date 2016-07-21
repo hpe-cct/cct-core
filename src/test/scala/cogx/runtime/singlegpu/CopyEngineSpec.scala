@@ -75,13 +75,13 @@ class CopyEngineSpec extends FunSuite with MustMatchers {
   /** Number of floats in the transfers of these tests. */
   val desiredFieldElements = 100 * 1024 * 1024L
 
-  def elementsToMB(fieldElements: Long) = fieldElements / 1024 / 1024 / 4
+  def elementsToMB(fieldElements: Long) = fieldElements * 4 / 1024 / 1024
 
   /** The number of fieldElements in the transfers, perhaps lowered to meet the capabilities of the device. */
   def testFieldElements(device: OpenCLDevice) = {
     val actualFieldElements = math.min(desiredFieldElements, device.maxMemAllocSize/4)
     if (actualFieldElements < desiredFieldElements)
-      println(s"Downsizing buffers to size ${elementsToMB(actualFieldElements)} MB, rather than usual ${elementsToMB(desiredFieldElements)}.")
+      println(s"Downsizing buffers to size ${elementsToMB(actualFieldElements)} MB, rather than the usual ${elementsToMB(desiredFieldElements)}.")
     actualFieldElements
   }
 
