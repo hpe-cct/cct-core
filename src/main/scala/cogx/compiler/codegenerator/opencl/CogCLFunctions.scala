@@ -20,18 +20,10 @@ package cogx.compiler.codegenerator.opencl
   * the built-in OpenCL functions. Note that we express everything as functions
   * (actually, macros), even arithmetic operations, for ease of compilation.
   *
-  * Use of convert_float below did not conform to the OpenCL spec, which
-  * requires convert_float4 (for example) to convert tensors of length 4.
-  * The AMD compiler complained about this with error messages.
-  * A workaround is to use 'select', but this requires creating a vector of
-  * 1.0f's and 0.0f's of the appropriate length.  For this we use typeof().
-  * Casting 0.0f to typeof(a) and 1.0f to typeof(b) has the desirable property
-  * that either a or b can be a scalar and OpenCL will expand it to a vector.
-  *
-  * Oops.  typeof() is not supported by Intel's OpenCL implementation, so I'm
-  * introducing an "#ifdef" to swap in the needed defines for AMD only.
-  *
-  *     -RJC
+  * The use of convert_float in the relational functions below was previously problematic
+  * since, for compiler's other than NVIDIA's, the vector width needs to be part of the
+  * function name (as the OpenCL spec requires).  We now generate convert_floatN per
+  * the spec and have no vendor-specific workaround code.
   *
   * @author Greg Snider
   */

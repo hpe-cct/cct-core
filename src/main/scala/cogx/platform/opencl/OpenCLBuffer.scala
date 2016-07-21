@@ -222,12 +222,9 @@ class OpenCLBuffer[T <: AbstractFieldMemory] private[opencl]
     fieldType.elementType == Complex32
 
   /** Release OpenCL buffer resource (garbage collector gets direct buffer). */
-  private[cogx] def release() {
-    deviceBuffer.release()
-  }
-
-  private[cogx] def isReleased: Boolean = {
-    deviceBuffer.isReleased
+  private[cogx] def release(): Unit = clMemoryLock.synchronized {
+    if (_deviceBuffer != null  && !_deviceBuffer.isReleased)
+      _deviceBuffer.release()
   }
 
   /** An CLEventList to hold completion events for asynchronous CPU -> GPU data transfers. */

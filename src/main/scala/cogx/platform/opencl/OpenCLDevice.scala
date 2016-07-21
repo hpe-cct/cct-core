@@ -140,6 +140,11 @@ class OpenCLDevice private[opencl](val clDevice: CLDevice,
     math.min(clDevice.getMaxConstantBufferSize, MaxConstantBufferSizeExposed)
   }
 
+  /** The largest allocation of constant memory permitted. */
+  def maxMemAllocSize: Long = {
+    clDevice.getMaxMemAllocSize
+  }
+
   /** A bundle of parameters that affect kernel code generation and optimization.  These values are
     * device-specific, so use these parameters only if the resulting kernel is guaranteed to be run
     * on this device, e.g. if the ComputeGraph is constructed with this device index as an argument. */

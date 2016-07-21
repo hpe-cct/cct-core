@@ -53,15 +53,12 @@ class CopyEngineSpec extends FunSuite with MustMatchers {
   /** Make a command queue for a device. */
   def makeQueue(device: OpenCLDevice) = device.clDevice.createCommandQueue()
 
-  /** Number of floats in the transfers of these tests. */
-  val fieldElements = 100 * 1000 * 1000
-
   /** Convert a measured duration in nanoseconds to a bandwidth for the fixed buffer size used in these tests. */
-  def xferRate(timeNanos: Long) = 4.0 * fieldElements / timeNanos
+  def xferRate(timeNanos: Long, fieldElements: Long) = 4.0 * fieldElements / timeNanos
 
   /** Make a OpenCL Buffer on a device with the specified bufferType and size. */
-  def makeCLBuf(device: OpenCLDevice, fieldElements: Int, bufferType: BufferType) = {
-    val fieldType = new FieldType(Shape(fieldElements), Shape(), Float32)
+  def makeCLBuf(device: OpenCLDevice, fieldElements: Long, bufferType: BufferType) = {
+    val fieldType = new FieldType(Shape(fieldElements.toInt), Shape(), Float32)
     val buf = device.createFieldBuffer(fieldType, bufferType).asInstanceOf[OpenCLBuffer[ScalarFieldMemory]]
     // Instantiate cpu portion of buffer
     buf.cpuMemory
@@ -73,6 +70,19 @@ class CopyEngineSpec extends FunSuite with MustMatchers {
     val start = System.nanoTime()
     f
     System.nanoTime() - start
+  }
+
+  /** Number of floats in the transfers of these tests. */
+  val desiredFieldElements = 100 * 1024 * 1024L
+
+  def elementsToMB(fieldElements: Long) = fieldElements / 1024 / 1024 / 4
+
+  /** The number of fieldElements in the transfers, perhaps lowered to meet the capabilities of the device. */
+  def testFieldElements(device: OpenCLDevice) = {
+    val actualFieldElements = math.min(desiredFieldElements, device.maxMemAllocSize/4)
+    if (actualFieldElements < desiredFieldElements)
+      println(s"Downsizing buffers to size ${elementsToMB(actualFieldElements)} MB, rather than usual ${elementsToMB(desiredFieldElements)}.")
+    actualFieldElements
   }
 
   sealed abstract class CopyDir(val commandName: String)
@@ -87,6 +97,7 @@ class CopyEngineSpec extends FunSuite with MustMatchers {
     val bandwidth =
       try {
         val device = platform.devices(0)
+        val fieldElements = testFieldElements(device)
         val clbuf1 = makeCLBuf(device, fieldElements, bufferType)
         val queue1 = makeQueue(device)
 
@@ -109,7 +120,7 @@ class CopyEngineSpec extends FunSuite with MustMatchers {
 //        val copyTimeNanos = System.nanoTime() - start
 //        checkStatus(eventList, dir.commandName)
 //        eventList.release()
-        xferRate(copyTimeNanos)
+        xferRate(copyTimeNanos, fieldElements)
       }
       finally
         platform.release()
@@ -182,6 +193,7 @@ class CopyEngineSpec extends FunSuite with MustMatchers {
 
     try {
       val device = platform.devices(0)
+      val fieldElements = testFieldElements(device)
       val clbuf1 = makeCLBuf(device, fieldElements, bufferType)
       val clbuf2 = makeCLBuf(device, fieldElements, bufferType)
 
@@ -210,7 +222,7 @@ class CopyEngineSpec extends FunSuite with MustMatchers {
         checkStatus(writeEventList, "putWriteBuffer")
         Await.result(reader, 60 seconds)
         val duration = System.nanoTime() - start
-        bandwidth = xferRate(duration) * 2
+        bandwidth = xferRate(duration, fieldElements) * 2
         readEventList.release()
         writeEventList.release()
       }
@@ -226,7 +238,7 @@ class CopyEngineSpec extends FunSuite with MustMatchers {
         queue1.putWriteBuffer(clbuf1, true)
         Await.result(reader, 10 seconds)
         val duration = System.nanoTime() - start
-        bandwidth = xferRate(duration) * 2
+        bandwidth = xferRate(duration, fieldElements) * 2
       }
     }
     finally
