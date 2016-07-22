@@ -34,10 +34,15 @@ class OpenCLProgram(device: OpenCLDevice) {
   private def platform = device.platform
   /** Source code for each kernel in the program. */
   private val sources = Set[KernelSourceCode]()
-  /** OpenCL compilation options. */
+  /** OpenCL compilation options. We used to include "-cl-nv-verbose" for NVIDIA devices, but this was removed because:
+    * 1) it became ineffectual on recent drivers,
+    * 2) it crashed compilations on the MacBook, which has an Apple platform/driver even with an NVIDIA device.
+    *
+    * If we want to subsequently add nvidia-specific build options, we might want to check whether both the platform
+    * and the device are NVIDIA first.
+    */
   private val buildOptions = "-cl-mad-enable -cl-no-signed-zeros" +
-          (if (device.isAMD) " -w" else "") +
-          (if (device.isNVidia) " -cl-nv-verbose" else "")
+          (if (device.isAMD) " -w" else "")
   /** The context of this program. */
   private def clContext = platform.clContext
   /** The underlying OpenCL resource for this device. */
@@ -49,6 +54,9 @@ class OpenCLProgram(device: OpenCLDevice) {
   //
   // -cl-nv-maxrregcount=32        // Applies to all the kernels that are compiled together, so not that useful. Creates
   //                               // register spilling if you set it too low (although occupancy improvements may accrue).
+  //
+  // -cl-nv-verbose                // This passes -verbose to the assembler. This used to have the effect of outputting
+  //                               // the register usage, but that no longer seems to be true in recent drivers.
 
   /** The built program for this device. */
   private var builtProgram: CLProgram = null

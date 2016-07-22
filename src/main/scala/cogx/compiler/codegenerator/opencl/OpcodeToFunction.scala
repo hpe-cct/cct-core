@@ -94,7 +94,7 @@ object OpcodeToFunction extends CompilerError {
           case MaxConstOp(value) => "fmax"
           case MinConstOp(value) => "fmin"
           case PowConstOp(exponent) => "pow"
-          case PownConstOp(exponent) => "pown"
+          case PownConstOp(exponent) => "powInt"
           case _ => internalError("opcode " + op + " has no function"); ""
         }
       case op: BinaryOpcode =>

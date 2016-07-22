@@ -70,6 +70,7 @@ object CogCLFunctions {
        |#define lessThanEqualConstFloat4(a, b) ((float4)((float)((a).x <= (b)), (float)((a).y <= (b)), (float)((a).z <= (b)), 1.0f))
        |#define equalsConstFloat4(a, b) ((float4)((float)((a).x == (b)), (float)((a).y == (b)), (float)((a).z == (b)), 1.0f))
        |#define notEqualsConstFloat4(a, b) ((float4)((float)((a).x != (b)), (float)((a).y != (b)), (float)((a).z != (b)), 1.0f))
+       |#define powInt(a, b) (pown((a), (int)(b)))
        |#ifndef M_PI
        |#define M_PI (3.14159265359)
        |#endif
