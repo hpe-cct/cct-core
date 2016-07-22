@@ -44,7 +44,9 @@ import org.scalatest.MustMatchers
 import org.junit.runner.RunWith
 import cogx.api.{CogFunctionAPI, ImplicitConversions}
 import cogx.compiler.parser.syntaxtree.{UnpipelinedActuator, UnpipelinedSensor}
+import cogx.platform.opencl.OpenCLPlatform
 import cogx.runtime.ComputeGraph
+import cogx.runtime.allocation.AllocationMode
 
 /** Test code for memory freeing of GPU global and CPU non-heap memory.
   *
@@ -67,11 +69,12 @@ class ReleaseResourceSpec
     */
   test("release of memory resources") {
 
-    def createAndReleaseComputeGraph(sizeBytes: Long) {
-      val NumFields = 2 // constant input buffer and output buffer
-      val elements = (sizeBytes / 4 / NumFields).toInt
+    val numBufsPerComputeGraph = 2 // constant input buffer and output buffer
 
-      val cg = new ComputeGraph() {
+    def createAndReleaseComputeGraph(deviceIndex: Int, sizeBytes: Long) {
+      val elements = (sizeBytes / 4 / numBufsPerComputeGraph).toInt
+
+      val cg = new ComputeGraph(device = Some(deviceIndex)) {
         val inArray = new Array[Float](elements)
         val outArray = new Array[Float](elements)
         val input = new UnpipelinedSensor(elements, () => inArray)
@@ -93,11 +96,27 @@ class ReleaseResourceSpec
     // ("direct" memory) were not being freed, this test would still pass
     // on a system with around 64GB of physical memory, for which the default
     // allocation for direct memory would be around 16GB.
-    val AlwaysFitsSize = 400L * 1024 * 1024       // 400MB
-    val NeverFitsSize =  13L * 1024 * 1024 * 1024  // 13GB
+    val desiredAllocSize = 400L * 1024 * 1024       // 400MB
 
-    val numComputeGraphs = (NeverFitsSize + AlwaysFitsSize - 1) / AlwaysFitsSize
+    val deviceIndex = AllocationMode.default match {
+      case AllocationMode.SingleGPU(device) => device
+      case _ => 0
+    }
+
+    def sizeToMB(size: Long) = s"${size/1024/1024} MB"
+
+    val device = OpenCLPlatform().devices(deviceIndex)
+    val deviceGlobalMemory = device.globalMemSize
+    val shouldntFitSize = (1.1 * deviceGlobalMemory).toLong
+    val bufAllocSize = math.min(desiredAllocSize, device.maxMemAllocSize)
+    if (bufAllocSize < desiredAllocSize)
+      println(s"Warning: downsizing to buffer alloc size ${sizeToMB(bufAllocSize)}, rather than the test's default of ${sizeToMB(desiredAllocSize)}.")
+    val cgAllocSize = numBufsPerComputeGraph * bufAllocSize
+
+    val numComputeGraphs = (shouldntFitSize + cgAllocSize - 1) / cgAllocSize
+    println(s"Creating $numComputeGraphs ComputeGraphs each of size ${sizeToMB(cgAllocSize)} to exceed the device global memory of ${sizeToMB(deviceGlobalMemory)} if they aren't released.")
+
     for (i <- 0L until numComputeGraphs)
-      createAndReleaseComputeGraph(AlwaysFitsSize)
+      createAndReleaseComputeGraph(deviceIndex, cgAllocSize)
   }
 }

@@ -135,6 +135,11 @@ class OpenCLDevice private[opencl](val clDevice: CLDevice,
     math.min(clDevice.getLocalMemSize, MaxLocalMemSizeExposed)
   }
 
+  /** The amount of global memory on the device. */
+  def globalMemSize: Long = {
+    clDevice.getGlobalMemSize
+  }
+
   /** The largest allocation of constant memory permitted. */
   def maxConstantBufferSize: Long = {
     val MaxConstantBufferSizeExposed = 256 * 1024L
@@ -252,10 +257,10 @@ class OpenCLDevice private[opencl](val clDevice: CLDevice,
   }
 
   /** Total global memory footprint in bytes of the fieldBuffers assigned to this device. */
-  def totalGlobalMemorySizeBytes = fieldBuffers.toSeq.map(_.globalMemorySize).foldLeft(0L)(_ + _)
+  def allocatedGlobalMemorySizeBytes = fieldBuffers.toSeq.map(_.globalMemorySize).foldLeft(0L)(_ + _)
 
   def globalMemoryFootprint: String = {
-    val sizeBytes = totalGlobalMemorySizeBytes
+    val sizeBytes = allocatedGlobalMemorySizeBytes
     if (sizeBytes < 10 * 1024)
       sizeBytes.toString + " bytes"
     else if (sizeBytes < 10 * 1024 * 1024)
