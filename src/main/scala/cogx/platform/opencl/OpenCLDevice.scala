@@ -148,30 +148,19 @@ class OpenCLDevice private[opencl](val clDevice: CLDevice,
 
   /** Can the device execute kernels in parallel or out-of-order w.r.t. the CommandQueue enqueueing order? */
   private[cogx] lazy val supportsOutOfOrderCommandQueues = {
-    try {
-      val queue = clDevice.createCommandQueue(CLCommandQueue.Mode.OUT_OF_ORDER_MODE)
-      queue.release()
-      true
-    }
-    catch {
-      case e: CLInvalidQueuePropertiesException =>
-        println(s"Warning: out-of-order command queue was requested- not supported on device $clDevice.")
-        false
-    }
+    val supported = clDevice.getQueueProperties.contains(CLCommandQueue.Mode.OUT_OF_ORDER_MODE)
+    if (!supported)
+      println(s"Warning: ignoring possible request for out-of-order command queue (not supported on $clDevice).")
+    supported
   }
 
   /** Can the device measure kernel execution times? */
   private[cogx] lazy val supportsProfiledKernelExecution = {
-    try {
-      val queue = clDevice.createCommandQueue(CLCommandQueue.Mode.PROFILING_MODE)
-      queue.release()
-      true
-    }
-    catch {
-      case e: CLInvalidQueuePropertiesException =>
-        println(s"Warning: profiled kernel execution was requested- not supported on device $clDevice.")
-        false
-    }
+    // The OpenCL spec says that profiling support is required, but just in case...
+    val supported = clDevice.getQueueProperties.contains(CLCommandQueue.Mode.PROFILING_MODE)
+    if (!supported)
+      println(s"Warning: ignoring possible request for kernel execution profiling (not supported on $clDevice).")
+    supported
   }
 
 

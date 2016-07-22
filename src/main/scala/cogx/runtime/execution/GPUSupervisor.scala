@@ -134,11 +134,16 @@ class GPUSupervisor(device: OpenCLDevice, gpu: GPU)
     var lastKernel: OpenCLAbstractKernel = null
     var nextToLastKernel: OpenCLAbstractKernel = null
     // Clock the circuit bottom-up, being prepared to handle kernel launch failures
+    var launchedKernels = 0
     for (kernel <- orderedKernels) {
       try {
         kernel.phase1Clock()
         nextToLastKernel = lastKernel
         lastKernel = kernel
+        launchedKernels += 1
+        // The ParserSpec test on the HPOmen/IntelIris platform hung after 500 kernel launches without a flush.
+        if (launchedKernels % Cog.kernelFlushFrequency == 0)
+          device.commandQueue.flush()
       }
       catch {
         case e: Exception =>

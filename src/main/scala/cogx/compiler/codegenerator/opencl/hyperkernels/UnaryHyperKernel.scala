@@ -19,7 +19,7 @@ package cogx.compiler.codegenerator.opencl.hyperkernels
 import cogx.platform.types.{FieldType, VirtualFieldRegister}
 import cogx.compiler.codegenerator.opencl.fragments.{AddressingMode, HyperKernel, SmallTensorAddressing, TensorElementAddressing}
 import cogx.compiler.codegenerator.opencl.OpcodeToFunction
-import cogx.compiler.parser.op.{UnaryOpcode, UnaryOpcodeNeedingVectorLength}
+import cogx.compiler.parser.op.{NeedsVectorLength, UnaryOpcode}
 
 /** Applies a unary operator on a field.
   *
@@ -37,7 +37,7 @@ class UnaryHyperKernel private (in: Array[VirtualFieldRegister],
                                 addressMode: AddressingMode)
         extends HyperKernel(operation, in, resultType, addressMode) {
   opcode match {
-    case x: UnaryOpcodeNeedingVectorLength =>
+    case x: NeedsVectorLength =>
       val vectorElemsPerThread =
         addressMode match {
           case SmallTensorAddressing => resultType.tensorShape.points

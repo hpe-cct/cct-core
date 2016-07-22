@@ -17,7 +17,7 @@
 package cogx.compiler.codegenerator.opencl.hyperkernels
 
 import cogx.compiler.codegenerator.opencl.fragments.{AddressingMode, HyperKernel, SmallTensorAddressing, TensorElementAddressing}
-import cogx.compiler.parser.op.{BinaryConstOpcode, BinaryConstOpcodeNeedingVectorLength}
+import cogx.compiler.parser.op.{BinaryConstOpcode, NeedsVectorLength}
 import cogx.compiler.codegenerator.opencl.OpcodeToFunction
 import cogx.platform.types.{FieldType, VirtualFieldRegister}
 
@@ -39,7 +39,7 @@ class BinaryConstHyperKernel private (in: Array[VirtualFieldRegister],
         extends HyperKernel(operation, in, resultType, addressMode)
 {
   opcode match {
-    case x: BinaryConstOpcodeNeedingVectorLength =>
+    case x: NeedsVectorLength =>
       val vectorElemsPerThread =
         addressMode match {
           case SmallTensorAddressing => resultType.tensorShape.points

@@ -33,9 +33,6 @@ import java.util.concurrent.atomic.AtomicLong
 private[cogx]
 sealed abstract class UnaryOpcode(name: String = "") extends Opcode(name)
 
-/** Unary opcodes whose implementation of OpcodeToFunction(op) requires a vector length as a 2rd parameter. */
-private[cogx] sealed abstract class UnaryOpcodeNeedingVectorLength(name: String = "") extends UnaryOpcode(name)
-
 // Unary operations that subclass UnaryOpcode directly, in alphabetical order.
 // Operations that subclass a subclass of UnaryOpcode are listed separately
 // below.
@@ -80,7 +77,7 @@ private[cogx] case class ShiftOp(shifts: Seq[Int], borderPolicy: BorderPolicy)
         extends UnaryOpcode(borderPolicy.toString) {
   override def toString: String = "ShiftOp(" + shifts.mkString(",") + "," + borderPolicy + ")"
 }
-private[cogx] case object SignumOp extends UnaryOpcodeNeedingVectorLength
+private[cogx] case object SignumOp extends UnaryOpcode with NeedsVectorLength
 private[cogx] case object SinOp extends UnaryOpcode
 private[cogx] case object SinhOp extends UnaryOpcode
 private[cogx] case class  SliceOp(index: Int) extends UnaryOpcode
@@ -250,21 +247,17 @@ private[cogx] case class UnpipelinedColorActuatorOp(newOutput: (Iterator[Byte]) 
 private[cogx] sealed abstract class BinaryConstOpcode(val const: Float, name: String = "")
         extends UnaryOpcode(name)
 
-/** Binary const opcodes whose implementation of OpcodeToFunction(op) requires a vector length as a 3rd parameter. */
-private[cogx]
-sealed abstract class BinaryConstOpcodeNeedingVectorLength(const: Float, name: String = "") extends BinaryConstOpcode(const, name)
-
 private[cogx] case class AddConstOp(value: Float) extends BinaryConstOpcode(value)
 private[cogx] case class SubtractConstOp(value: Float) extends BinaryConstOpcode(value)
 private[cogx] case class MultiplyConstOp(value: Float) extends BinaryConstOpcode(value)
 private[cogx] case class DivideConstOp(value: Float) extends BinaryConstOpcode(value)
 private[cogx] case class ModuloConstOp(value: Float) extends BinaryConstOpcode(value)
-private[cogx] case class GreaterThanConstOp(value: Float) extends BinaryConstOpcodeNeedingVectorLength(value)
-private[cogx] case class GreaterThanEqualsConstOp(value: Float) extends BinaryConstOpcodeNeedingVectorLength(value)
-private[cogx] case class LessThanConstOp(value: Float) extends BinaryConstOpcodeNeedingVectorLength(value)
-private[cogx] case class LessThanEqualsConstOp(value: Float) extends BinaryConstOpcodeNeedingVectorLength(value)
-private[cogx] case class EqualsConstOp(value: Float) extends BinaryConstOpcodeNeedingVectorLength(value)
-private[cogx] case class NotEqualsConstOp(value: Float) extends BinaryConstOpcodeNeedingVectorLength(value)
+private[cogx] case class GreaterThanConstOp(value: Float) extends BinaryConstOpcode(value) with NeedsVectorLength
+private[cogx] case class GreaterThanEqualsConstOp(value: Float) extends BinaryConstOpcode(value) with NeedsVectorLength
+private[cogx] case class LessThanConstOp(value: Float) extends BinaryConstOpcode(value) with NeedsVectorLength
+private[cogx] case class LessThanEqualsConstOp(value: Float) extends BinaryConstOpcode(value) with NeedsVectorLength
+private[cogx] case class EqualsConstOp(value: Float) extends BinaryConstOpcode(value) with NeedsVectorLength
+private[cogx] case class NotEqualsConstOp(value: Float) extends BinaryConstOpcode(value) with NeedsVectorLength
 
 private[cogx] case class MaxConstOp(value: Float) extends BinaryConstOpcode(value)
 private[cogx] case class MinConstOp(value: Float) extends BinaryConstOpcode(value)

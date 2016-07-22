@@ -89,6 +89,8 @@ object Cog {
   val checkLegacyReshape = setBoolean("checkLegacyReshape", default=false)
   /** Maximum number of probed fields that the graphical layout pane will attempt to display. */
   var maxLayoutProbedFields = setInt("maxLayoutProbedFields", 100)
+  /** Kernel CommandQueue flush frequency (users should generally leave this alone). */
+  var kernelFlushFrequency = setInt("kernelFlushFrequency", 100)
   /** Release version, is not automatically discernible from the release jar manifest */
   val defaultReleaseVersion = "5.0.0-SNAPSHOT"
 
