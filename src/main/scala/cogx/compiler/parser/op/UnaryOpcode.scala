@@ -262,7 +262,7 @@ private[cogx] case class NotEqualsConstOp(value: Float) extends BinaryConstOpcod
 private[cogx] case class MaxConstOp(value: Float) extends BinaryConstOpcode(value)
 private[cogx] case class MinConstOp(value: Float) extends BinaryConstOpcode(value)
 private[cogx] case class PowConstOp(exponent: Float) extends BinaryConstOpcode(exponent)
-private[cogx] case class PownConstOp(exponent: Int) extends BinaryConstOpcode(exponent)
+private[cogx] case class PownConstOp(exponent: Int) extends BinaryConstOpcode(exponent) with NeedsVectorLength
 
 private[cogx] sealed abstract class ComplexBinaryRealConstOp(const: Float, function: String = "")
         extends BinaryConstOpcode(const, function)

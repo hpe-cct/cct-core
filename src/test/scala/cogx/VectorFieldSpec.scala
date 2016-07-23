@@ -44,88 +44,6 @@ class VectorFieldSpec extends FunSuite with MustMatchers
 
   /** Test combining a dynamic vector field and a constant. */
   test("vector field / constant") {
-    val Size = 5
-
-    val R = 3.21f
-    val initField = RefVectorField.random(Size, Size, VectorShape)
-
-    // Tests that involve equality should involve a threshold that matches
-    // at least one element.  Here are some elements:
-    val elem1 = initField.read(0,0).read(0)
-    val elem2 = initField.read(Size-1,0).read(0)
-    val elem3 = initField.read(Size-1,Size-1).read(0)
-    val elem4 = initField.read(0,0).read(VectorSize-1)
-
-    val graph = new ComputeGraph(Optimize) with RefTestInterface {
-      val a = TestVectorField(initField)
-      val sum = a + R
-      val diff = a - R
-      val product = a * R
-      val quotient = a / R
-      val maxa = max(a, 0.5f)
-      val mina = min(a, 0.5f)
-      val power = pow(a, 3.0f)
-      val pown = pow(a, 3)
-
-      // Constant appears first in mutator expression
-
-      val constSum = R + a
-      val constDiff = R - a
-      val constProduct = R * a
-      val constQuotient = R / a
-
-      val greater = a > 0.5f
-      val greaterEq = a >= elem1
-      val less = a < 0.5f
-      val lessEq = a <= elem2
-      val eq3 = a === elem3
-      val nEq3 = a !=== elem4
-
-      // Above tests are all on 2D inputs.  Test 0D, 1D and 3D:
-
-      val a0D = TestVectorField(RefVectorField.random(VectorShape))
-      val a1D = TestVectorField(RefVectorField.random(Size, VectorShape))
-      val a3D = TestVectorField(RefVectorField.random(Size, Size, Size, VectorShape))
-
-      val sum0D = a0D + R
-      val sum1D = a1D + R
-      val sum3D = a3D + R
-
-      probe(sum, a, diff, product, quotient, maxa, mina, power, pown, constSum, constDiff, constProduct, constQuotient,
-        greater, greaterEq, less, lessEq, eq3, nEq3, sum0D, a0D, sum1D, a1D, sum3D, a3D)
-    }
-
-    import graph._
-    withRelease {
-      step
-
-      require(readVector(sum) == (readVector(graph.a) + R))
-      require(readVector(diff) == (readVector(graph.a) - R))
-      require(readVector(product) == (readVector(graph.a) * R))
-      require(readVector(quotient) ~== (readVector(graph.a) / R))
-      require(readVector(maxa) ~==
-              readVector(graph.a).map(v => v.map(_ max 0.5f)))
-      require(readVector(mina) ~==
-              readVector(graph.a).map(v => v.map(_ min 0.5f)))
-      require(readVector(power) ~== (readVector(graph.a) :* readVector(graph.a) :* readVector(graph.a)))
-      require(readVector(pown) ~== (readVector(graph.a) :* readVector(graph.a) :* readVector(graph.a)))
-
-      require(readVector(constSum) == (readVector(graph.a) + R))
-      require(readVector(constDiff) == (-readVector(graph.a) + R))
-      require(readVector(constProduct) == (readVector(graph.a) * R))
-      require(readVector(constQuotient) ~== (readVector(graph.a).reciprocal * R))
-
-      require(readVector(greater) == readVector(graph.a).map(vecGreater(_, 0.5f)))
-      require(readVector(greaterEq) == readVector(graph.a).map(vecGreaterEq(_, elem1)))
-      require(readVector(less) == readVector(graph.a).map(vecLess(_, 0.5f)))
-      require(readVector(lessEq) == readVector(graph.a).map(vecLessEq(_, elem2)))
-      require(readVector(eq3) == readVector(graph.a).map(vecEq(_, elem3)))
-      require(readVector(nEq3) == readVector(graph.a).map(vecNotEq(_, elem4)))
-
-      require(readVector(sum0D) == (readVector(a0D) + R))
-      require(readVector(sum1D) == (readVector(a1D) + R))
-      require(readVector(sum3D) == (readVector(a3D) + R))
-    }
 
     def vecGreater(v: Vector, thresh: Float) = v.map(x => if (x > thresh) 1f else 0f)
     def vecGreaterEq(v: Vector, thresh: Float) = v.map(x => if (x >= thresh) 1f else 0f)
@@ -133,6 +51,99 @@ class VectorFieldSpec extends FunSuite with MustMatchers
     def vecLessEq(v: Vector, thresh: Float) = v.map(x => if (x <= thresh) 1f else 0f)
     def vecEq(v: Vector, thresh: Float) = v.map(x => if (x == thresh) 1f else 0f)
     def vecNotEq(v: Vector, thresh: Float) = v.map(x => if (x != thresh) 1f else 0f)
+
+    def doTest(vectorLen: Int): Unit = {
+      val vectorShape = Shape(vectorLen)
+      val Size = 5
+
+      val R = 3.21f
+      val initField = RefVectorField.random(Size, Size, vectorShape)
+
+      // Tests that involve equality should involve a threshold that matches
+      // at least one element.  Here are some elements:
+      val elem1 = initField.read(0,0).read(0)
+      val elem2 = initField.read(Size-1,0).read(0)
+      val elem3 = initField.read(Size-1,Size-1).read(0)
+      val elem4 = initField.read(0,0).read(vectorLen-1)
+
+      val graph = new ComputeGraph(Optimize) with RefTestInterface {
+        val a = TestVectorField(initField)
+        val sum = a + R
+        val diff = a - R
+        val product = a * R
+        val quotient = a / R
+        val maxa = max(a, 0.5f)
+        val mina = min(a, 0.5f)
+        val power = pow(a, 3.0f)
+        val pown = pow(a, 3)
+
+        // Constant appears first in mutator expression
+
+        val constSum = R + a
+        val constDiff = R - a
+        val constProduct = R * a
+        val constQuotient = R / a
+
+        val greater = a > 0.5f
+        val greaterEq = a >= elem1
+        val less = a < 0.5f
+        val lessEq = a <= elem2
+        val eq3 = a === elem3
+        val nEq3 = a !=== elem4
+
+        // Above tests are all on 2D inputs.  Test 0D, 1D and 3D:
+
+        val a0D = TestVectorField(RefVectorField.random(vectorShape))
+        val a1D = TestVectorField(RefVectorField.random(Size, vectorShape))
+        val a3D = TestVectorField(RefVectorField.random(Size, Size, Size, vectorShape))
+
+        val sum0D = a0D + R
+        val sum1D = a1D + R
+        val sum3D = a3D + R
+
+        probe(sum, a, diff, product, quotient, maxa, mina, power, pown, constSum, constDiff, constProduct, constQuotient,
+          greater, greaterEq, less, lessEq, eq3, nEq3, sum0D, a0D, sum1D, a1D, sum3D, a3D)
+      }
+
+      import graph._
+      withRelease {
+        step
+
+        require(readVector(sum) == (readVector(graph.a) + R))
+        require(readVector(diff) == (readVector(graph.a) - R))
+        require(readVector(product) == (readVector(graph.a) * R))
+        require(readVector(quotient) ~== (readVector(graph.a) / R))
+        require(readVector(maxa) ~==
+          readVector(graph.a).map(v => v.map(_ max 0.5f)))
+        require(readVector(mina) ~==
+          readVector(graph.a).map(v => v.map(_ min 0.5f)))
+        require(readVector(power) ~== (readVector(graph.a) :* readVector(graph.a) :* readVector(graph.a)))
+        require(readVector(pown) ~== (readVector(graph.a) :* readVector(graph.a) :* readVector(graph.a)))
+
+        require(readVector(constSum) == (readVector(graph.a) + R))
+        require(readVector(constDiff) == (-readVector(graph.a) + R))
+        require(readVector(constProduct) == (readVector(graph.a) * R))
+        require(readVector(constQuotient) ~== (readVector(graph.a).reciprocal * R))
+
+        require(readVector(greater) == readVector(graph.a).map(vecGreater(_, 0.5f)))
+        require(readVector(greaterEq) == readVector(graph.a).map(vecGreaterEq(_, elem1)))
+        require(readVector(less) == readVector(graph.a).map(vecLess(_, 0.5f)))
+        require(readVector(lessEq) == readVector(graph.a).map(vecLessEq(_, elem2)))
+        require(readVector(eq3) == readVector(graph.a).map(vecEq(_, elem3)))
+        require(readVector(nEq3) == readVector(graph.a).map(vecNotEq(_, elem4)))
+
+        require(readVector(sum0D) == (readVector(a0D) + R))
+        require(readVector(sum1D) == (readVector(a1D) + R))
+        require(readVector(sum3D) == (readVector(a3D) + R))
+      }
+
+    }
+    // The implementation of pown has length-specific code for all the "SmallTensor" types.
+    // We test all these vector lengths, plus the non-SmallTensor value 5.
+    val vectorLengths = Seq(2,3,4,5,8,16)
+    for (vectorLength <- vectorLengths)
+      doTest(vectorLength)
+
 
   }
 

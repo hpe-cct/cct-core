@@ -36,7 +36,7 @@ object CogCLFunctions {
     * already defined so we don't need the cl_khr_fp64 extension.
     */
   val real =
-    """|#define convert_float1(a) (convert_float(a))
+    """|#define convert_float1(a) convert_float(a)
        |#define signum(a, s) (fabs(convert_float##s((a) > 0.0f)) - fabs(convert_float##s((a) < 0.0f)))
        |#define greaterThan(a, b, s) fabs(convert_float##s(isgreater(a, b)))
        |#define greaterThanEqual(a, b, s) fabs(convert_float##s(isgreaterequal(a, b)))
@@ -70,7 +70,14 @@ object CogCLFunctions {
        |#define lessThanEqualConstFloat4(a, b) ((float4)((float)((a).x <= (b)), (float)((a).y <= (b)), (float)((a).z <= (b)), 1.0f))
        |#define equalsConstFloat4(a, b) ((float4)((float)((a).x == (b)), (float)((a).y == (b)), (float)((a).z == (b)), 1.0f))
        |#define notEqualsConstFloat4(a, b) ((float4)((float)((a).x != (b)), (float)((a).y != (b)), (float)((a).z != (b)), 1.0f))
-       |#define powInt(a, b) (pown((a), (int)(b)))
+       |#define makeType(t, n)  makeType##n(t)
+       |#define makeType1(t)    t
+       |#define makeType2(t)    t##2
+       |#define makeType3(t)    t##3
+       |#define makeType4(t)    t##4
+       |#define makeType8(t)    t##8
+       |#define makeType16(t)   t##16
+       |#define powInt(a, b, s)    pown((a),(makeType(int,s))(b))
        |#ifndef M_PI
        |#define M_PI (3.14159265359)
        |#endif
