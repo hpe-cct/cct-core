@@ -16,9 +16,9 @@
 
 package cogx.compiler.parser.op
 
-import cogx.compiler.codegenerator.opencl.hyperkernels.fastfouriertransform.{Inverse, ClFFTDirection, Forward}
+import cogx.compiler.codegenerator.opencl.hyperkernels.fastfouriertransform.{ClFFTDirection, Forward, Inverse}
 import cogx.platform.cpumemory.readerwriter.ScalarFieldReader
-import cogx.platform.types.{FilterOrientation, BorderPolicy, Opcode}
+import cogx.platform.types.{BorderPolicy, ConvolutionSamplingPolicy, FilterOrientation, Opcode}
 import cogx.cogmath.geometry.Shape
 import cogx.cogmath.algebra.real.Matrix
 import cogx.cogmath.algebra.complex.Complex
@@ -58,6 +58,7 @@ private[cogx] case object ExpOp extends UnaryOpcode
 private[cogx] case object FilterNaNOp extends UnaryOpcode
 private[cogx] case object FloorOp extends UnaryOpcode
 private[cogx] case object FlipOp extends UnaryOpcode
+private[cogx] case class  FilterAdjointShuffleOp(batchSize: Int) extends UnaryOpcode
 private[cogx] case object ForwardGradientOp extends UnaryOpcode
 private[cogx] case object LogOp extends UnaryOpcode
 private[cogx] case object MatrixInvertOp extends UnaryOpcode
@@ -297,3 +298,11 @@ private[cogx] case object DCTTransposeFieldOp extends UnaryOpcode("DCTTransposeF
 
 // Output proxy, a stand-in for a kernel that is implemented on another node
 private[cogx] case object OutputProxyOp extends UnaryOpcode("OutputProxy")
+
+// Opcodes for translating certain convolution/cross-correlate inputs into equivalent matrix multiply operands
+private[cogx] case class FilterAdjointToeplitzOp(borderPolicy:BorderPolicy,
+                                    filterOrientation: FilterOrientation,
+                                    samplingPolicy: ConvolutionSamplingPolicy,
+                                    batchSize: Int,
+                                    filterShape: Shape)
+  extends UnaryOpcode(filterOrientation.toString + borderPolicy.toString)

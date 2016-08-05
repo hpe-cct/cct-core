@@ -41,6 +41,7 @@ object KernelCircuitOptimizer extends Optimizer {
       optimizations += DeadKernel.optimize(kernelCircuit, codeGenParams)
       optimizations += RedundantInputs.optimize(kernelCircuit, codeGenParams)
       optimizations += CommonSubexpression.optimize(kernelCircuit, codeGenParams)
+      optimizations += TensorReduceOptimizer.optimize(kernelCircuit, codeGenParams)
       optimizations += ProjectFrameTensorReduceSumOptimizer.optimize(kernelCircuit, codeGenParams)
 
       // Loop over a list of optimizers whose improvements may create further

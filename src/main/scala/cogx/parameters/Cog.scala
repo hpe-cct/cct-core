@@ -66,6 +66,8 @@ object Cog {
   var projectFrameMerging = setBoolean("projectFrameMerging", default=true)
   /** Enable merging of the two kernels involved in the sequence blockReduceSum(convolve(...BackProjectFrame...))  */
   var backProjectFrameMerging = setBoolean("backProjectFrameMerging", default=true)
+  /** Enable merging of the two kernels involved in the sequence blockReduceSum(convolve(...FilterAdjoint...))  */
+  var filterAdjointMerging = setBoolean("filterAdjointMerging", default=true)
   /** Enable experimental merger optimizations (e.g. forward-merging of kernels that use local memory) */
   var localMemoryMerging = setBoolean("localMemoryMerging", default = true)
   /** Enables the core platform Akka actors to share threads, rather than use a custom dispatcher that gives each actor

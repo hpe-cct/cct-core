@@ -20,8 +20,9 @@ package cogx.platform.opencl
   *
   * @author Dick Carter
   *
-  * @param maxConstantBufferSize The maximum amount of constant memory permitted on the platform.
-  * @param localMemSize The maximum amount of local memory (workgroup-shared memory) permitted on the platform.
+  * @param maxMemAllocSize The maximum amount of memory permitted that can be allocated as one Buffer on the device.
+  * @param maxConstantBufferSize The maximum amount of constant memory permitted on the device.
+  * @param localMemSize The maximum amount of local memory (workgroup-shared memory) permitted on the device.
   * @param warpSize The number of threads that execute in lock-step without need for memory synchronization.
   */
-case class OpenCLKernelCodeGenParams(maxConstantBufferSize: Long, localMemSize: Long, warpSize: Int)
+case class OpenCLKernelCodeGenParams(maxMemAllocSize: Long, maxConstantBufferSize: Long, localMemSize: Long, warpSize: Int)

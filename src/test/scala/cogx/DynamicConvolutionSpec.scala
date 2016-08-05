@@ -69,7 +69,7 @@ class DynamicConvolutionSpec extends FunSuite
     }
 
     ConvolveOp(borderPolicy,ConvolutionOrientation,samplingPolicy,
-      PlaneByPlane, batchSize = 1)
+      PlaneByPlane, 1)
   }
 
   test("convolveSeparable") {

@@ -43,42 +43,50 @@ private[cogx] case object ProjectFrameBlockReduceSum extends VectorMode
 private[cogx] case object BackProjectFrame extends VectorMode
 private[cogx] case object BackProjectFrameBlockReduceSum extends VectorMode
 private[cogx] case object FilterAdjoint extends VectorMode
+private[cogx] case object FilterAdjointBlockReduceSum extends VectorMode
 
 // The following organization of convolve opcodes allows the mini-tiled convolve
 // kernels to accept either a fully-specified opcode, as might occur in tuning tests,
 // or a simpler opcode that would invoke the recommended default parameters.
-private[cogx] sealed abstract class AbstractConvolveOp(name: String) extends BinaryOpcode(name)
+private[cogx] sealed abstract class AbstractConvolveOp(val borderPolicy:BorderPolicy,
+                                                       val filterOrientation: FilterOrientation,
+                                                       val samplingPolicy: ConvolutionSamplingPolicy,
+                                                       val vectorMode: VectorMode,
+                                                       val batchSize: Int)
+  extends BinaryOpcode(vectorMode.toString + borderPolicy.toString)
 
-private[cogx] case class ConvolveOp(borderPolicy:BorderPolicy,
-                             filterOrientation: FilterOrientation,
-                             samplingPolicy: ConvolutionSamplingPolicy,
-                             vectorMode: VectorMode,
-                             batchSize: Int)
-        extends AbstractConvolveOp(vectorMode.toString + borderPolicy.toString)
+/** A convolve operator with no additional parameters as might be supplied by performance tests
+  */
+private[cogx] case class ConvolveOp(_borderPolicy:BorderPolicy,
+                                    _filterOrientation: FilterOrientation,
+                                    _samplingPolicy: ConvolutionSamplingPolicy,
+                                    _vectorMode: VectorMode,
+                                    _batchSize: Int)
+        extends AbstractConvolveOp(_borderPolicy, _filterOrientation, _samplingPolicy, _vectorMode, _batchSize)
 
 /** A convolve operator with additional parameters, designed to allow programmatic testing and
   * tuning of convolve kernels that have each thread responsible for a "mini-tile" of the output.
   */
 private[cogx] case class ConvolveTiledOp(localRows: Int, localColumns: Int,
-                                 rowsPerThread: Int, colsPerThread: Int,
-                                 borderPolicy:BorderPolicy,
-                                 filterOrientation: FilterOrientation,
-                                 samplingPolicy: ConvolutionSamplingPolicy,
-                                 vectorMode: VectorMode,
-                                 batchSize: Int       )
-  extends AbstractConvolveOp(vectorMode.toString + borderPolicy.toString)
+                                         rowsPerThread: Int, colsPerThread: Int,
+                                         _borderPolicy:BorderPolicy,
+                                         _filterOrientation: FilterOrientation,
+                                         _samplingPolicy: ConvolutionSamplingPolicy,
+                                         _vectorMode: VectorMode,
+                                         _batchSize: Int)
+  extends AbstractConvolveOp(_borderPolicy, _filterOrientation, _samplingPolicy, _vectorMode, _batchSize)
 
 /** A convolve operator with additional parameters, designed to allow programmatic testing and
   * tuning of the "convolve to small field" convolve kernels.
   */
 private[cogx] case class ConvolveToSmallFieldTiledOp(localRows: Int, localColumns: Int,
-                                 rowsPerThread: Int,
-                                 borderPolicy:BorderPolicy,
-                                 filterOrientation: FilterOrientation,
-                                 samplingPolicy: ConvolutionSamplingPolicy,
-                                 vectorMode: VectorMode,
-                                 batchSize: Int)
-  extends AbstractConvolveOp(vectorMode.toString + borderPolicy.toString)
+                                                     rowsPerThread: Int,
+                                                     _borderPolicy:BorderPolicy,
+                                                     _filterOrientation: FilterOrientation,
+                                                     _samplingPolicy: ConvolutionSamplingPolicy,
+                                                     _vectorMode: VectorMode,
+                                                     _batchSize: Int)
+  extends AbstractConvolveOp(_borderPolicy, _filterOrientation, _samplingPolicy, _vectorMode, _batchSize)
 
 private[cogx] case class ConvolveRows2DOp(borderPolicy:BorderPolicy,
                             filterOrientation: FilterOrientation)

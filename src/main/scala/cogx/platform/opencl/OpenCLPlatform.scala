@@ -117,6 +117,7 @@ class OpenCLPlatform {
     val warpSize = devices.map(_.warpSize).reduceLeft(gcd(_, _))
     val localMemSize: Long = devices.map(_.localMemSize).reduceLeft(_ min _)
     val maxConstantBufferSize: Long = devices.map(_.maxConstantBufferSize).reduceLeft(_ min _)
+    val maxMemAllocSize: Long = devices.map(_.maxMemAllocSize).reduceLeft(_ min _)
     for (i <- 0 until devices.length) {
       if (warpSize != devices(i).warpSize)
         println(s"Warning: using device $i ($toString) suboptimally with warpSize $warpSize due to multi-GPU platform compile (could be ${devices(i).warpSize}).")
@@ -127,6 +128,7 @@ class OpenCLPlatform {
     }
 
     OpenCLKernelCodeGenParams(
+      maxMemAllocSize,
       maxConstantBufferSize,
       localMemSize,
       warpSize)

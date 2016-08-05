@@ -184,6 +184,8 @@ class ConvolveToSmallFieldPipelinedHyperKernel private (inputs: Array[VirtualFie
         s"""
            |        tensorElement = logicalOutputPlane % $planesPerImage + imageIndex * $planesPerImage;
            |""".stripMargin
+      case FilterAdjointBlockReduceSum =>
+        throw new RuntimeException(s"Internal compiler error: invalid vector mode ${operation.vectorMode} seen.")
       case PlaneByPlane =>
         s"          tensorElement = logicalOutputPlane;\n"
     }
@@ -245,6 +247,8 @@ class ConvolveToSmallFieldPipelinedHyperKernel private (inputs: Array[VirtualFie
         throw new RuntimeException("Mode not supported for this operation")
       case FilterAdjoint =>
         s"  tensorElement = withinImageThreadElement / $planesPerImage + imageIndex * $numLogicalFilters;\n"
+      case FilterAdjointBlockReduceSum =>
+        throw new RuntimeException(s"Internal compiler error: invalid vector mode ${operation.vectorMode} seen.")
       case PlaneByPlane => "" // tensorElement already set up properly above
     }
   code append postReadLocalCode

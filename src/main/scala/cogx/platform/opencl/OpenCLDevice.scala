@@ -174,6 +174,7 @@ class OpenCLDevice private[opencl](val clDevice: CLDevice,
     * on this device, e.g. if the ComputeGraph is constructed with this device index as an argument. */
   def kernelCodeGenParams =
     OpenCLKernelCodeGenParams(
+      maxMemAllocSize,
       maxConstantBufferSize,
       localMemSize,
       warpSize)

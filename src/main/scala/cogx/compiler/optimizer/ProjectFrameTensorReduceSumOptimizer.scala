@@ -18,11 +18,11 @@ package cogx.compiler.optimizer
 
 import cogx.cogmath.geometry.Shape
 import cogx.compiler.codegenerator.KernelCircuit
-import cogx.compiler.codegenerator.opencl.hyperkernels.{ConvolveTiledHyperKernel2, SliceVectorsHyperKernel, ConvolveHyperKernel, TensorReduceHyperKernel}
+import cogx.compiler.codegenerator.opencl.hyperkernels.{ConvolveHyperKernel, ConvolveTiledHyperKernel2, SliceVectorsHyperKernel, TensorReduceHyperKernel}
 import cogx.compiler.parser.op._
 import cogx.parameters.Cog
 import cogx.platform.opencl.OpenCLKernelCodeGenParams
-import cogx.platform.types.{BorderValid, UseSmallTensorWhenBest}
+import cogx.platform.types.{BorderValid, CrossCorrelationOrientation, UpsampleInputConvolution, UseSmallTensorWhenBest}
 
 /** Optimizer of kernel DAGs.
   *
@@ -31,14 +31,37 @@ import cogx.platform.types.{BorderValid, UseSmallTensorWhenBest}
   * this optimizer recognizes a ConvolveKernel(vectorMode = BackProjectFrame) driving a TensorReduceHyperKernel and merges
   * them into a single ConvolveKernel(vectorMode = BackProjectFrameBlockReduceSum) kernel that does the entire task,
   *
+  * Finally, this optimizer helps create an optimized FilterAdjointBlockReduceSum through an admittedly complicated path:
+  *
+  * Before this kernel-circuit-level optimizer is run, the user creates the following sequence of operations
+  * at the SyntaxTree level:
+  *
+  *               crossCorrelateFilterAdjoint(...).blockReduceSum(batchSize)
+  *
+  * The VectorFieldGenerator, will translate each of these operations into their respective kernels.  The
+  * crossCorrelateFilterAdjoint operation, when translated, knows nothing of the following blockReduceSum, so a
+  * sometimes inefficient ConvolveToSmallFieldHyperKernel is used that requires its own TensorReduceHyperKernel to
+  * complete its job.  The first pass KernelCircuit is thus:
+  *
+  *        ConvolveToSmallFieldHyperKernel -> TensorReduceHyperKernel(x) -> TensorReduceHyperKernel(batchSize)
+  *
+  * The next step in transforming this kernel sequence is performed by the TensorReduceOptimizer, which combines
+  * the kernels into the following sequence:
+  *
+  *        ConvolveToSmallFieldHyperKernel -> TensorReduceHyperKernel(x * batchSize)
+  *
+  * Finally, this optimizer is run and recognizes the sequence of a convolve kernel (one that has a
+  * ConvolveOp(vectorMode=FilterAdjoint) ) followed by a tensor reduction down to the tensor shape expected of an
+  * end-to-end FilterAdjointBlockReduceSum.  After checking that the ConvolveHyperkernel factory method is prepared
+  * to handle the new opcode, this optimizer replaces the two-kernel convolve-reduce sequence by the result of
+  * ConvolveHyperKernel(vectorMode=FilterAdjointBlockReduceSum).  This torturous sequence of steps could be avoided
+  * if we did optimizations at the SyntaxTree level.
+  *
   * @author Dick Carter
   */
 private[cogx]
 object ProjectFrameTensorReduceSumOptimizer extends Optimizer {
   private[cogx] val Enabled = true
-  // The tiled convolve combined with tensor reduction is currently slower than the conventional approach
-  // due to register pressure.  More work is needed on the ConvolveTiledHyperKernel2
-  private[cogx] val TiledConvolveEnable = false
 
   /** "Horizontally" merge all HyperKernels in `dag` when possible.
     *
@@ -67,51 +90,55 @@ object ProjectFrameTensorReduceSumOptimizer extends Optimizer {
           if (!kernel.isDead) {
             kernel match {
               case reduceKernel: TensorReduceHyperKernel =>
-                reduceKernel.inputs(0).source match {
-                  case convolveKernel: ConvolveHyperKernel =>
-                    val imageType = convolveKernel.inputs(0).fieldType
-                    val batchSize = convolveKernel.operation.batchSize
-                    val imageVectorSize = imageType.tensorShape.points
+                reduceKernel.inputs(0).source.opcode match {
+                  case convolveOp: AbstractConvolveOp =>
+                    val convolveKernel = reduceKernel.inputs(0).source
+                    val batchSize = convolveOp.batchSize
+                    val in0VectorLength = convolveKernel.inputs(0).fieldType.tensorShape.points
+                    val in1VectorLength = convolveKernel.inputs(1).fieldType.tensorShape.points
                     val convolveOutputType = reduceKernel.inputs(0).fieldType
                     val reduceFactor = reduceKernel.operation.factor
+                    val resultVectorSize = reduceKernel.outputs(0).fieldType.tensorShape.points
                     // We could also optimize vectorMode == PlaneByPlane where the image and
                     // filter lengths are the same.  Do we need a thread-count analysis here
                     // to make sure this is always a win?
-                    val okToMerge =
-                      (convolveKernel.operation.vectorMode == ProjectFrame && Cog.projectFrameMerging ||
-                        convolveKernel.operation.vectorMode == BackProjectFrame && Cog.backProjectFrameMerging) &&
-                      (reduceKernel.inputs(0).sinks.length == 1) &&
-                      !convolveKernel.outputs(0).probed &&
-                      (reduceFactor * batchSize == imageVectorSize)
+                    val okToMergeTest1 = reduceKernel.inputs(0).sinks.length == 1 && !convolveKernel.outputs(0).probed
+                    val okToMergeTest2 = convolveOp.vectorMode match {
+                      case ProjectFrame =>
+                        val planesPerImage = in0VectorLength / batchSize
+                        val numLogicalFilters = in1VectorLength / planesPerImage
+                        Cog.projectFrameMerging  && (resultVectorSize == numLogicalFilters * batchSize)
+                      case BackProjectFrame =>
+                        val numLogicalFilters = in0VectorLength / batchSize
+                        val planesPerImage = in1VectorLength / numLogicalFilters
+                        Cog.backProjectFrameMerging && (resultVectorSize == planesPerImage * batchSize)
+                      case FilterAdjoint =>
+                        val planesPerImage = in0VectorLength / batchSize
+                        val numLogicalFilters = in1VectorLength / batchSize
+                        Cog.filterAdjointMerging &&
+                          convolveOp.samplingPolicy.isInstanceOf[UpsampleInputConvolution] &&
+                          convolveOp.filterOrientation == CrossCorrelationOrientation &&
+                          batchSize > 1 &&
+                          (resultVectorSize == planesPerImage * numLogicalFilters) &&
+                        ConvolveHyperKernel.canUseFilterAdjointBlockReduceSum(convolveKernel.inputs.toArray, convolveOp, convolveOutputType.fieldShape, codeGenParams)
+                      case _ =>
+                        false
+                    }
+                    val okToMerge = okToMergeTest1 && okToMergeTest2
                     if (okToMerge) {
-                      val newVectorMode = convolveKernel.operation.vectorMode match {
+                      val newVectorMode = convolveOp.vectorMode match {
                         case ProjectFrame => ProjectFrameBlockReduceSum
                         case BackProjectFrame => BackProjectFrameBlockReduceSum
+                        case FilterAdjoint => FilterAdjointBlockReduceSum
                         case _ => throw new RuntimeException("Unexpected vector mode.")
                       }
-                      val oldOp = convolveKernel.operation
-                      val newOp = ConvolveOp(oldOp.borderPolicy, oldOp.filterOrientation,
-                        oldOp.samplingPolicy, newVectorMode, oldOp.batchSize)
-                      // Tiled convolve requires BorderValid convolution
-                      val useTiledConvolve = TiledConvolveEnable && (newOp.borderPolicy == BorderValid)
+                      val newOp = ConvolveOp(convolveOp.borderPolicy, convolveOp.filterOrientation,
+                        convolveOp.samplingPolicy, newVectorMode, convolveOp.batchSize)
                       val newResultType =
-                        if (useTiledConvolve) {
-                          ConvolveTiledHyperKernel2.outputFieldType(convolveKernel.inputs(0).fieldType, convolveKernel.inputs(1).fieldType,
-                            newOp.vectorMode)
-                        }
-                        else {
                           ConvolveHyperKernel.outputFieldType(convolveKernel.inputs(0).fieldType, convolveKernel.inputs(1).fieldType,
                             newOp.borderPolicy, newOp.samplingPolicy, newOp.vectorMode, newOp.batchSize)
-                        }
                       val newConvolveKernel =
-                        if (useTiledConvolve) {
-                          ConvolveTiledHyperKernel2(convolveKernel.inputs.toArray, newOp,
-                            newResultType)
-                       }
-                        else {
-                          ConvolveHyperKernel(convolveKernel.inputs.toArray, newOp,
-                            newResultType, UseSmallTensorWhenBest, codeGenParams)
-                        }
+                          ConvolveHyperKernel(convolveKernel.inputs.toArray, newOp, newResultType, UseSmallTensorWhenBest, codeGenParams)
                       val lastKernel =
                         if (newResultType.tensorShape == Shape(1))
                           SliceVectorsHyperKernel(newConvolveKernel.outputs(0), TensorSliceOp(0), newResultType.resizeTensor(Shape()))

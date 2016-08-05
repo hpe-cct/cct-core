@@ -191,6 +191,8 @@ class ConvolveHyperKernel private (inputs: Array[VirtualFieldRegister],
           """
             |  tensorElement = _tensorElement;
           """.stripMargin
+        case FilterAdjointBlockReduceSum =>
+          throw new RuntimeException(s"Internal compiler error: invalid vector mode ${operation.vectorMode} seen.")
       }
     else
       ""
@@ -329,6 +331,8 @@ class ConvolveHyperKernel private (inputs: Array[VirtualFieldRegister],
           s"  tensorElement = reductionIndex * $numLogicalFilters + withinImageThreadElement * $filtersPerWorkGroup;\n"
         case FilterAdjoint =>
           s"  tensorElement = withinImageThreadElement / $planesPerImage + imageIndex * $numLogicalFilters;\n"
+        case FilterAdjointBlockReduceSum =>
+          throw new RuntimeException(s"Internal compiler error: invalid vector mode ${operation.vectorMode} seen.")
         case PlaneByPlane => "" // tensorElement already set up properly above
       }
     else
@@ -998,6 +1002,7 @@ object ConvolveHyperKernel {
             smallTensorUse: ConvolutionSmallTensorUsePolicy,
             codeGenParams: OpenCLKernelCodeGenParams): HyperKernel = {
 
+    import operation._
     // BorderValid convolutions or crossCorrelations in filter adjoint mode
     // are handled by a different kernel. Technically, this other kernel could
     // handle ScalarField convolve ScalarField in Bordervalid mode to small outputs
@@ -1008,20 +1013,61 @@ object ConvolveHyperKernel {
       val bestAddressMode = bestParameters.addressing
       new ConvolveHyperKernel(inputs, operation, resultType, bestAddressMode, bestParameters)
     }
-    operation.borderPolicy match {
+
+    // FilterAdjoint instances with upsampling (due to a strided forward cross-correlation) are more efficiently
+    // performed via a matrix multiply of the backpropped gradient field by a "toeplitz matrix" that is a
+    // function of the image input.
+    def crossCorrelateViaMatrixMultiply = {
+      val gradientField = inputs(1)
+      val gradientFieldType = gradientField.fieldType
+      val gradientPoints = gradientFieldType.fieldShape.points
+      val gradientTensorPoints = gradientFieldType.tensorShape.points
+      require(gradientTensorPoints % batchSize == 0,
+        s"Expecting gradient field vector depth $gradientTensorPoints to be a multiple of $batchSize.")
+      val logicalFilters = gradientFieldType.tensorShape.points / batchSize
+      val inputFeatures = inputs(0).fieldType.tensorShape.points / batchSize
+      val resultPoints = resultType.fieldShape.points
+      require(samplingPolicy.isInstanceOf[UpsampleInputConvolution] && operation.filterOrientation == CrossCorrelationOrientation)
+      // Shuffle planes of the "dY" input to group together same-feature planes rather than same-image planes.
+      val shuffled =
+        if (batchSize > 1)
+          FilterAdjointShuffleHyperKernel(Array(gradientField),FilterAdjointShuffleOp(batchSize),gradientFieldType).outputs(0)
+        else
+          gradientField
+      // Reshape the "dY" input to a 0D MatrixField as needed for the Matrix multiply
+      val dYreshaped = ReshapeHyperKernel(shuffled,ReshapeOp(Shape(),Shape(logicalFilters, gradientPoints * batchSize),false)).outputs(0)
+      val toeplitzResultType =
+        new FieldType(Shape(),Shape(gradientPoints * batchSize,inputFeatures*resultPoints), inputs(0).fieldType.elementType)
+      val toeplitzOp =
+        FilterAdjointToeplitzOp(borderPolicy, filterOrientation, samplingPolicy, batchSize, resultType.fieldShape)
+      val toeplitzMatrix = FilterAdjointToeplitzHyperKernel(inputs(0), toeplitzOp, toeplitzResultType).outputs(0)
+      val transformInputs = Array(dYreshaped,toeplitzMatrix)
+      val transformResultType =
+        new FieldType(Shape(),Shape(logicalFilters,inputFeatures*resultPoints), inputs(0).fieldType.elementType)
+      // Perform the filter adjoint operation as a matrix multiply that includes a reduction by the batchSize
+      val misShapedResult = MatrixMatrixTransformHyperKernel(transformInputs, MatrixTransformMatrixOp(false, false), transformResultType).outputs(0)
+      ReshapeHyperKernel(misShapedResult, ReshapeOp(resultType.fieldShape, resultType.tensorShape, false))
+    }
+
+    borderPolicy match {
       case BorderValid =>
-        operation.vectorMode match {
+        vectorMode match {
           case FilterAdjoint =>
-            val filterPoints = inputs(1).fieldType.fieldShape.points
+            val gradientField = inputs(1)
+            val gradientFieldType = gradientField.fieldType
+            val gradientPoints = gradientFieldType.fieldShape.points
+            val gradientTensorPoints = gradientFieldType.tensorShape.points
+            require(gradientTensorPoints % batchSize == 0,
+              s"Expecting gradient field vector depth $gradientTensorPoints to be a multiple of $batchSize.")
             val resultPoints = resultType.fieldShape.points
             // The ConvolveToSmallFieldPipelinedHyperKernel was designed for large filters that
             // don't fit in local memory.  If the filter fits in local memory and particularly if
             // the result field is bigger than the filter, the std convolve kernel should be used.
             // Upsampling in filteradjoint mode is defined differently than the way it's
             // supported by the standard convolution kernel.  Avoid std convolve kernel in this case.
-            if (operation.samplingPolicy == NoSamplingConvolution &&
-              (filterPoints <= 7*7 ||
-               filterPoints <= 17*17 && filterPoints < resultPoints))
+            if (samplingPolicy == NoSamplingConvolution &&
+              (gradientPoints <= 7*7 ||
+               gradientPoints <= 17*17 && gradientPoints < resultPoints))
               stdConvolve
             // The pipelined convolution kernels were seen to fail the regression tests for an AMD 6470m.
             // This is how we disabled use of those kernels until a fix was instituted.  The fix is not
@@ -1029,18 +1075,85 @@ object ConvolveHyperKernel {
             // in the affected kernels.
 //            else if (!platformParams.isNVidia)
 //              ConvolveToSmallFieldHyperKernel(inputs, operation, resultType, platformParams)
+            // The ConvolveTosSmallField kernels are not that efficient for upsampled inputs.  We found
+            // that performing the convolution as a matrix-multiply by the Toeplitz matrix is faster.
+            else if (batchSize == 1 && canUseFilterAdjointBlockReduceSum(inputs, operation, resultType.fieldShape, codeGenParams))
+              crossCorrelateViaMatrixMultiply
             else if (ConvolveToSmallFieldPipelinedTiledHyperKernel.isRecommended(inputs))
               ConvolveToSmallFieldPipelinedTiledHyperKernel(inputs, operation, resultType, codeGenParams)
             else
               ConvolveToSmallFieldPipelinedHyperKernel(inputs, operation, resultType, codeGenParams)
-
             // Older version of kernel.  This can be removed after we have
             // "field tested" (pun intended) the tricky pipelined version above.
-//              ConvolveToSmallFieldHyperKernel(inputs, operation, resultType, platformParams)
+//            else
+//              ConvolveToSmallFieldHyperKernel(inputs, operation, resultType, codeGenParams)
+
+          case FilterAdjointBlockReduceSum =>
+            // The optimizer that creates this vector mode should already have performed this check.
+            require(canUseFilterAdjointBlockReduceSum(inputs, operation, resultType.fieldShape, codeGenParams),
+              s"Internal error: filterAdjoint via matrix multiply not possible to generate $resultType")
+            crossCorrelateViaMatrixMultiply
           case _ => stdConvolve
         }
       case _ => stdConvolve
     }
+  }
+
+  /** Create a kernel that convolves a field with a dynamic filter field.
+    *
+    * @param inputs The input field and the filter field driving this kernel.
+    * @param operation The binary opcode for this operation.
+    * @param resultFieldShape The FieldShape of the result of this kernel.
+    * @param codeGenParams A bundle of platform parameters that affect kernel code generation and optimization.
+    * @return The synthesized hyperkernel.
+    *
+    */
+  def canUseFilterAdjointBlockReduceSum(inputs: Array[VirtualFieldRegister], operation: AbstractConvolveOp, resultFieldShape: Shape,
+            codeGenParams: OpenCLKernelCodeGenParams): Boolean = {
+
+    import operation._
+
+    val resultPoints = resultFieldShape.points
+
+    // A flag that should be hand-set false during characterization of this approach
+    val enablePruningBasedOnStride = true
+
+    // The toeplitzMatrix can get rather large for small upsample steps.  Make sure the buffer to
+    // hold the toeplitz matrix doesn't exceed the maximum allocation size.
+    def toeplitzMatrixCanBeAllocated = {
+      // We often call the 2nd field argument of a convolution the "filter", but in FilterAdjoint mode
+      // this can be confusing- the 2nd argument is the gradient field whose FieldType matches the output
+      // Fieldtype of the corresponding forward ProjectFrame operation.  The output field of the
+      // FilterAdjoint convolution is the back-propped gradient field whose FieldType matches the filter
+      // field of the ProjectFrame operation
+      val gradientFieldType = inputs(1).fieldType
+      val gradientPoints = gradientFieldType.fieldShape.points
+      val gradientTensorPoints = gradientFieldType.tensorShape.points
+      require(gradientTensorPoints % batchSize == 0,
+        s"Expecting gradient field vector depth $gradientTensorPoints to be a multiple of $batchSize.")
+      val logicalFilters = gradientFieldType.tensorShape.points / batchSize
+      val inputFeatures = inputs(0).fieldType.tensorShape.points / batchSize
+      // Before using the matrix-multiply approach, make sure the toeplitz matrix is not too big
+      val toeplitzResultType =
+        new FieldType(Shape(),Shape(gradientPoints * batchSize, inputFeatures*resultPoints), inputs(0).fieldType.elementType)
+      val toeplitzResultBytes = toeplitzResultType.fieldShape.points * toeplitzResultType.tensorShape.points * 4L
+      val notTooBig = toeplitzResultBytes <= codeGenParams.maxMemAllocSize
+      if (!notTooBig)
+        println("Warning: bypassing high-performing FilterAdjoint implementation due to insufficient global memory.")
+      notTooBig
+    }
+    if (borderPolicy == BorderValid && (vectorMode == FilterAdjoint || vectorMode == FilterAdjointBlockReduceSum)) {
+      samplingPolicy match {
+        case UpsampleInputConvolution(step) =>
+          filterOrientation == CrossCorrelationOrientation &&
+            (!enablePruningBasedOnStride || step > 2 || step == 2 && resultPoints > 5*5) &&  // Tuning swag based on TitanX and 1080
+          toeplitzMatrixCanBeAllocated                        // Make this term last due to method's possible warning msg
+        case NoSamplingConvolution => false
+        case x: DownsampleOutputConvolution => false
+      }
+    }
+    else
+      false
   }
 
   /** Certain vectorModes, like ProjectFrameBlockReduceSum, process a number of output planes per workgroup.  This
@@ -1109,6 +1222,8 @@ object ConvolveHyperKernel {
                   tensorElementAddressingParams
             }
           }
+        case FilterAdjointBlockReduceSum =>
+          throw new RuntimeException(s"Internal compiler error: invalid vector mode ${operation.vectorMode} seen.")
       }
   }
 
@@ -1141,6 +1256,7 @@ object ConvolveHyperKernel {
       case UpsampleInputConvolution(step) =>
         vectorMode match {
           case FilterAdjoint => inputSizes
+          case FilterAdjointBlockReduceSum => inputSizes
           case _ => inputSizes.map(_ * step)
         }
       case _ => inputSizes
@@ -1150,6 +1266,7 @@ object ConvolveHyperKernel {
       case UpsampleInputConvolution(step) =>
         vectorMode match {
           case FilterAdjoint => filterSizes.map(_ * step)
+          case FilterAdjointBlockReduceSum => filterSizes.map(_ * step)
           case _ => filterSizes
         }
       case _ => filterSizes
@@ -1179,15 +1296,10 @@ object ConvolveHyperKernel {
     def frameInputChecks {
       require(inputTensorPoints % batchSize == 0,
         s"Input tensorshape points $inputTensorPoints must be a multiple of the batchSize $batchSize")
-      if (vectorMode == FilterAdjoint)
-        require(filterTensorPoints % batchSize == 0,
-          s"Filter tensorshape points $filterTensorPoints must be a multiple of the batchSize $batchSize")
-      require(input.elementType == Float32 &&
-        filter.elementType == Float32)
+      require(input.elementType == Float32 && filter.elementType == Float32)
       require(input.tensorOrder < 2 && filter.tensorOrder < 2, s"Frame convolve operations not supported on MatrixFields")
       require(filter.tensorShape.points % planesPerImage == 0,
         s"filter tensor length $filterTensorPoints not a multiple of per-image tensor length $planesPerImage")
-      require(filter.tensorShape.points % planesPerImage == 0)
     }
 
     /** input field checks, a bit different for each VectorMode */
@@ -1197,6 +1309,14 @@ object ConvolveHyperKernel {
       case BackProjectFrame => frameInputChecks
       case BackProjectFrameBlockReduceSum =>  frameInputChecks
       case FilterAdjoint =>
+        require(filterTensorPoints % batchSize == 0,
+          s"Filter tensorshape points $filterTensorPoints must be a multiple of the batchSize $batchSize")
+        require(input.elementType == Float32 &&
+                filter.elementType == Float32)
+        require(input.tensorOrder < 2 && filter.tensorOrder < 2)
+      case FilterAdjointBlockReduceSum =>
+        require(filterTensorPoints % batchSize == 0,
+          s"Filter tensorshape points $filterTensorPoints must be a multiple of the batchSize $batchSize")
         require(input.elementType == Float32 &&
                 filter.elementType == Float32)
         require(input.tensorOrder < 2 && filter.tensorOrder < 2)
@@ -1241,6 +1361,15 @@ object ConvolveHyperKernel {
         // has a single `batchSize` factor in its length.
         val planesPerFilter = filterTensorPoints / batchSize
         val outputTensorPoints = planesPerImage * planesPerFilter * batchSize
+        if (outputTensorPoints > 1)
+          Shape(outputTensorPoints)
+        else
+          Shape()
+      case FilterAdjointBlockReduceSum =>
+        // Both image and 2nd "filter" inputs are expanded by the batchSize.  Output
+        // has no `batchSize` factor in its length.
+        val planesPerFilter = filterTensorPoints / batchSize
+        val outputTensorPoints = planesPerImage * planesPerFilter
         if (outputTensorPoints > 1)
           Shape(outputTensorPoints)
         else

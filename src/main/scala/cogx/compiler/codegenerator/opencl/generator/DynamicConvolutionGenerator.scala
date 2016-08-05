@@ -114,6 +114,7 @@ object DynamicConvolutionGenerator
           case BackProjectFrame => true
           case BackProjectFrameBlockReduceSum => true
           case FilterAdjoint => true
+          case FilterAdjointBlockReduceSum => true
           case PlaneByPlane => false
         }
 

@@ -1092,6 +1092,69 @@ class StaticConvolutionSpec extends FunSuite
     new TestReducedLocalWorkSize(360, 50, 7)
   }
 
+  /** Test filterAdjoint cross-correlation of a scalar field image with a scalar field
+    * representation, with upsampling. Input data is constant
+    * so this just makes sure that the right number of elements are summed.
+    */
+  test("scalar cross-correlate FilterAdjoint scalar, 2D to small field with upsample") {
+
+    class TestScalarCrossCorrelateScalarToSmall(inputSize: Int, filterSize: Int, upSampleFactor: Int)
+            extends ComputeGraph(Optimize) with RefTestInterface {
+      val OutputSize = inputSize - filterSize * upSampleFactor + 1
+
+      val InputElementVal = 0.5f
+
+      val input = ScalarField(inputSize, inputSize, (r,c) => InputElementVal)
+      val filter = ScalarField(filterSize, filterSize, (r,c) => 1.0f)
+      val output =
+        if (upSampleFactor > 1)
+          crossCorrelateFilterAdjoint(input, filter, BorderValid, UpsampleInputConvolution(upSampleFactor))
+        else
+          crossCorrelateFilterAdjoint(input, filter, BorderValid)
+      val expected = TestScalarField(Matrix(OutputSize, OutputSize,
+        (r,c) => filterSize * filterSize * InputElementVal))
+
+      probe(output, expected)
+
+      withRelease {
+        step
+        require(readScalar(output) ~== readScalar(expected))
+      }
+    }
+
+    // Lowering the local worksize by specifying a big input (> 48KBytes) stresses
+    // the pipeline control logic of the ConvolveToSmallFieldHyperKernel.
+    class TestReducedLocalWorkSize(inputSize: Int, filterSize: Int, upSampleFactor: Int)
+            extends ComputeGraph(Optimize) with RefTestInterface {
+      val OutputSize = inputSize - filterSize * upSampleFactor + 1
+
+      val InputElementVal = 0.5f
+
+      val input = ScalarField(inputSize, inputSize, (r,c) =>
+        if (r < upSampleFactor && c < upSampleFactor) InputElementVal else 0f)
+      val filter = ScalarField(filterSize, filterSize, (r,c) => 1.0f)
+      val output =
+        if (upSampleFactor > 1)
+          crossCorrelateFilterAdjoint(input, filter, BorderValid, UpsampleInputConvolution(upSampleFactor))
+        else
+          crossCorrelateFilterAdjoint(input, filter, BorderValid)
+      val expected = TestScalarField(Matrix(OutputSize, OutputSize,
+        (r,c) => if (r < upSampleFactor && c < upSampleFactor) InputElementVal else 0f))
+
+      probe(output, expected)
+
+      withRelease {
+        step
+        require(readScalar(output) ~== readScalar(expected))
+      }
+    }
+
+    new TestScalarCrossCorrelateScalarToSmall(137, 64, 2)
+    new TestScalarCrossCorrelateScalarToSmall(35, 10, 3)
+    new TestScalarCrossCorrelateScalarToSmall(210, 50, 4)
+    new TestReducedLocalWorkSize(360, 50, 7)
+  }
+
   /** Test filterAdjoint convolution of a vector field image with a vector field representation.
     */
   test("scalar convolveFilterAdjoint scalar, checks proper upsampling / flip ordering.") {
@@ -1926,6 +1989,66 @@ class StaticConvolutionSpec extends FunSuite
     new TestVectorCrossCorrelateFilterAdjoint2D(6, 6, 23, 29, 7) // degenerate frame case
   }
 
+  /** Test filterAdjoint cross-correlation of a batched vector field image with a vector field representation.
+    */
+  test("batched vector crosscorrelateFilterAdjoint vector, 2D") {
+    class TestVectorCrosscorrelateFilterAdjoint2D(planesPerLogicalImage: Int, planesPerLogicalOutput: Int,
+                                            InputRows: Int, InputColumns: Int, OutputSize: Int, randomData: Boolean, batchSize: Int)
+      extends ComputeGraph(Optimize) with RefTestInterface {
+      require(planesPerLogicalOutput % planesPerLogicalImage == 0)
+      val planesPerLogicalFilter = planesPerLogicalOutput / planesPerLogicalImage
+
+      val kernelRows = InputRows - OutputSize + 1
+      val kernelColumns = InputColumns - OutputSize + 1
+
+      val kernels = Array.tabulate(planesPerLogicalFilter * batchSize) {
+        i =>
+          if (randomData)
+            TestScalarField(Matrix.random(kernelRows, kernelColumns))
+          else
+            TestScalarField(Matrix(kernelRows, kernelColumns, (r,c) => 10*r + c + i/10f))
+      }
+      val slices = Array.tabulate(planesPerLogicalImage * batchSize) {
+        (i) => TestScalarField(RefScalarField.random(InputRows, InputColumns))
+      }
+      val expectedSlicesOut = Array.tabulate(planesPerLogicalOutput * batchSize) {
+        i =>
+          // Which image within the batch
+          val imageIndex = i % batchSize
+          val thisImageOutputIndex = i / batchSize
+          val in1Index = imageIndex * planesPerLogicalImage + thisImageOutputIndex % planesPerLogicalImage
+          val in2Index = imageIndex * planesPerLogicalFilter + thisImageOutputIndex / planesPerLogicalImage
+          crossCorrelate(slices(in1Index), kernels(in2Index), BorderValid)
+      }
+
+      val vectorIn = vectorField(slices)
+      val kernelIn = vectorField(kernels)
+      val vectorOut = crossCorrelateFilterAdjoint(vectorIn, kernelIn, BorderValid, batchSize = batchSize)
+      val slicedVectorOut = Array.tabulate(planesPerLogicalOutput * batchSize) {
+        (i) => vectorElement(vectorOut, i)
+      }
+
+      probe((expectedSlicesOut ++ slicedVectorOut): _*)
+
+      withRelease {
+        step
+        for (i <- 0 until planesPerLogicalOutput*batchSize)
+          require(readScalar(expectedSlicesOut(i)) ~== readScalar(slicedVectorOut(i)))
+      }
+    }
+
+    new TestVectorCrosscorrelateFilterAdjoint2D(2, 6, 63, 67, 17, false, 2)
+    new TestVectorCrosscorrelateFilterAdjoint2D(5, 20, 63, 67, 17, false, 2)
+    new TestVectorCrosscorrelateFilterAdjoint2D(3, 12, 15, 27, 5, false, 3)
+    new TestVectorCrosscorrelateFilterAdjoint2D(2, 4, 15, 27, 5, false, 2)
+    new TestVectorCrosscorrelateFilterAdjoint2D(1, 4, 15, 27, 5, false, 7) // degenerate frame case
+    new TestVectorCrosscorrelateFilterAdjoint2D(6, 6, 15, 27, 5, false, 8) // degenerate frame case
+    // Leave the next test out, since it requires >32K of local memory, which is the guaranteed minimum.
+    //    new TestVectorConvolveFilterAdjoint2D(5, 20, 81, 79, 7, true)
+    new TestVectorCrosscorrelateFilterAdjoint2D(3, 12, 64, 64, 31, true, 2)
+    new TestVectorCrosscorrelateFilterAdjoint2D(2, 4, 15, 27, 6, true, 3)
+  }
+
   /** Test filterAdjoint convolution of a vector field image with a vector field representation.
     */
   test("vector crossCorrelateFilterAdjoint vector, 2D with upsampling") {
@@ -1975,6 +2098,146 @@ class StaticConvolutionSpec extends FunSuite
     new TestVectorCrossCorrelateFilterAdjoint2D(2, 4)
     new TestVectorCrossCorrelateFilterAdjoint2D(1, 4) // degenerate frame case
     new TestVectorCrossCorrelateFilterAdjoint2D(6, 6) // degenerate frame case
+  }
+  /** Test filterAdjoint crosscorrelate of a batched vector field image with a vector field filter, with upsampling.
+    */
+  test("batched vector crosscorrelateFilterAdjoint vector, 2D with upsampling") {
+    class TestVectorCrossCorrelateFilterAdjoint2D(planesPerLogicalImage: Int, planesPerLogicalOutput: Int,
+                                            InputRows: Int, InputColumns: Int, OutputSize: Int, randomData: Boolean, batchSize: Int, upsampleFactor: Int)
+      extends ComputeGraph(Optimize) with RefTestInterface {
+      require(planesPerLogicalOutput % planesPerLogicalImage == 0)
+      val planesPerLogicalFilter = planesPerLogicalOutput / planesPerLogicalImage
+
+      val KernelRows = (InputRows - OutputSize + 1) / upsampleFactor
+      val KernelColumns = (InputColumns - OutputSize + 1) / upsampleFactor
+
+      require(KernelRows > 0)
+      require(KernelColumns > 0)
+
+      val kernels = Array.tabulate(planesPerLogicalFilter * batchSize) {
+        i =>
+          if (randomData)
+            TestScalarField(Matrix.random(KernelRows, KernelColumns))
+          else
+            TestScalarField(Matrix(KernelRows, KernelColumns, (r,c) => 10*r + c + i/10f))
+      }
+      val slices = Array.tabulate(planesPerLogicalImage * batchSize) {
+        //          (i) => TestScalarField(RefScalarField(InputRows, InputColumns, (r,c) => i + 1f))
+        (i) => TestScalarField(RefScalarField.random(InputRows, InputColumns))
+      }
+      val expectedSlicesOut = Array.tabulate(planesPerLogicalOutput * batchSize) {
+        i =>
+          // Which image within the batch
+          val imageIndex = i % batchSize
+          val thisImageOutputIndex = i / batchSize
+          val in1Index = imageIndex * planesPerLogicalImage + thisImageOutputIndex % planesPerLogicalImage
+          val in2Index = imageIndex * planesPerLogicalFilter + thisImageOutputIndex / planesPerLogicalImage
+          crossCorrelate(slices(in1Index), upsample(kernels(in2Index), upsampleFactor), BorderValid)
+      }
+
+      val vectorIn = vectorField(slices)
+      val kernelIn = vectorField(kernels)
+      val vectorOut = crossCorrelateFilterAdjoint(vectorIn, kernelIn, BorderValid, UpsampleInputConvolution(upsampleFactor), batchSize = batchSize)
+      val slicedVectorOut = Array.tabulate(planesPerLogicalOutput * batchSize) {
+        (i) => vectorElement(vectorOut, i)
+      }
+
+      probe((expectedSlicesOut ++ slicedVectorOut): _*)
+
+      withRelease {
+        step
+        for (i <- 0 until planesPerLogicalOutput*batchSize)
+          require(readScalar(expectedSlicesOut(i)) ~== readScalar(slicedVectorOut(i)))
+      }
+    }
+
+    new TestVectorCrossCorrelateFilterAdjoint2D(2, 6, 64, 72, 17, false, 2, 2)
+    new TestVectorCrossCorrelateFilterAdjoint2D(5, 20, 70, 79, 17, false, 2, 3)
+    new TestVectorCrossCorrelateFilterAdjoint2D(3, 12, 16, 28, 5, false, 3, 2)
+    new TestVectorCrossCorrelateFilterAdjoint2D(2, 4, 16, 28, 5, false, 2, 2)
+    new TestVectorCrossCorrelateFilterAdjoint2D(1, 4, 16, 28, 5, false, 7, 2) // degenerate frame case
+    new TestVectorCrossCorrelateFilterAdjoint2D(6, 6, 16, 28, 5, false, 8, 2) // degenerate frame case
+    // Leave the next test out, since it requires >32K of local memory, which is the guaranteed minimum.
+    //    new TestVectorConvolveFilterAdjoint2D(5, 20, 81, 79, 7, true)
+    new TestVectorCrossCorrelateFilterAdjoint2D(3, 12, 64, 64, 31, true, 2, 2)
+    new TestVectorCrossCorrelateFilterAdjoint2D(2, 4, 15, 27, 6, true, 3, 2)
+    new TestVectorCrossCorrelateFilterAdjoint2D(2, 4, 70, 70, 11, true, 3, 4)
+  }
+
+  /** Test filterAdjoint crosscorrelate of a batched vector field image with a vector field filter, with upsampling.
+    */
+  test("batched vector crosscorrelateFilterAdjoint vector, 2D with upsampling and block reduction.") {
+    class TestVectorCrossCorrelateFilterAdjointBlockReduceSum2D(planesPerLogicalImage: Int, planesPerLogicalOutput: Int,
+                                            InputRows: Int, InputColumns: Int, OutputSize: Int, randomData: Boolean, batchSize: Int, upsampleFactor: Int)
+      extends ComputeGraph(Optimize) with RefTestInterface {
+      require(planesPerLogicalOutput % planesPerLogicalImage == 0)
+      val planesPerLogicalFilter = planesPerLogicalOutput / planesPerLogicalImage
+
+      val KernelRows = (InputRows - OutputSize + 1) / upsampleFactor
+      val KernelColumns = (InputColumns - OutputSize + 1) / upsampleFactor
+
+      require(KernelRows > 0)
+      require(KernelColumns > 0)
+
+      val kernels = Array.tabulate(planesPerLogicalFilter * batchSize) {
+        i =>
+          if (randomData)
+            TestScalarField(Matrix.random(KernelRows, KernelColumns))
+          else
+            TestScalarField(Matrix(KernelRows, KernelColumns, (r,c) => 10*r + c + i/10f))
+      }
+      val slices = Array.tabulate(planesPerLogicalImage * batchSize) {
+        //          (i) => TestScalarField(RefScalarField(InputRows, InputColumns, (r,c) => i + 1f))
+        (i) => TestScalarField(RefScalarField.random(InputRows, InputColumns))
+      }
+      val expectedSlicesOut = Array.tabulate(planesPerLogicalOutput * batchSize) {
+        i =>
+          // Which image within the batch
+          val imageIndex = i % batchSize
+          val thisImageOutputIndex = i / batchSize
+          val in1Index = imageIndex * planesPerLogicalImage + thisImageOutputIndex % planesPerLogicalImage
+          val in2Index = imageIndex * planesPerLogicalFilter + thisImageOutputIndex / planesPerLogicalImage
+          crossCorrelate(slices(in1Index), upsample(kernels(in2Index), upsampleFactor), BorderValid)
+      }
+
+      val summedExpectedSlicesOut = Array.tabulate(planesPerLogicalOutput) {
+        i => expectedSlicesOut.slice(i*batchSize, (i+1)*batchSize).reduceLeft(_ + _)
+      }
+
+      val vectorIn = vectorField(slices)
+      val kernelIn = vectorField(kernels)
+      val unreduced = crossCorrelateFilterAdjoint(vectorIn, kernelIn, BorderValid, UpsampleInputConvolution(upsampleFactor), batchSize = batchSize)
+      val vectorOut = blockReduceSum(unreduced, batchSize)
+      val slicedVectorOut = Array.tabulate(planesPerLogicalOutput) {
+        (i) => vectorElement(vectorOut, i)
+      }
+
+      probe((summedExpectedSlicesOut ++ expectedSlicesOut ++ slicedVectorOut): _*)
+
+      withRelease {
+        step
+        for (i <- 0 until planesPerLogicalOutput)
+          require(readScalar(summedExpectedSlicesOut(i)) ~== readScalar(slicedVectorOut(i)))
+      }
+    }
+
+    new TestVectorCrossCorrelateFilterAdjointBlockReduceSum2D(2, 6, 64, 72, 17, false, 2, 2)
+    new TestVectorCrossCorrelateFilterAdjointBlockReduceSum2D(5, 20, 70, 79, 17, false, 2, 3)
+    // stride of 2, filtersize of 5 does not employ the matrix-multiply optimization
+    new TestVectorCrossCorrelateFilterAdjointBlockReduceSum2D(3, 12, 16, 28, 5, false, 3, 2)
+    new TestVectorCrossCorrelateFilterAdjointBlockReduceSum2D(2, 4, 16, 28, 5, false, 2, 2)
+    new TestVectorCrossCorrelateFilterAdjointBlockReduceSum2D(1, 4, 16, 28, 5, false, 7, 2) // degenerate frame case
+    new TestVectorCrossCorrelateFilterAdjointBlockReduceSum2D(6, 6, 16, 28, 5, false, 8, 2) // degenerate frame case
+    // Redo the above tests with higher filter size to employ the matrix-multiply optimization
+    new TestVectorCrossCorrelateFilterAdjointBlockReduceSum2D(3, 12, 16, 28, 7, false, 3, 2)
+    new TestVectorCrossCorrelateFilterAdjointBlockReduceSum2D(2, 4, 18, 28, 7, false, 2, 2)
+    new TestVectorCrossCorrelateFilterAdjointBlockReduceSum2D(1, 4, 20, 28, 7, false, 7, 2) // degenerate frame case
+    new TestVectorCrossCorrelateFilterAdjointBlockReduceSum2D(6, 6, 22, 28, 7, false, 8, 2) // degenerate frame case
+
+    new TestVectorCrossCorrelateFilterAdjointBlockReduceSum2D(5, 20, 82, 80, 7, true, 3, 2)
+    new TestVectorCrossCorrelateFilterAdjointBlockReduceSum2D(3, 12, 64, 64, 31, true, 2, 2)
+    new TestVectorCrossCorrelateFilterAdjointBlockReduceSum2D(2, 4, 15, 27, 6, true, 3, 2)
+    new TestVectorCrossCorrelateFilterAdjointBlockReduceSum2D(2, 4, 70, 70, 11, true, 3, 4)
   }
 
   /** Test cross-correlation of "big vector" and "small vector" vector fields with

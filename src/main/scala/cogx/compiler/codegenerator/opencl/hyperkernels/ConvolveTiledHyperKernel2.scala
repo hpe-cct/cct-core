@@ -166,6 +166,8 @@ class ConvolveTiledHyperKernel2 private (in: Array[VirtualFieldRegister],
         indentSpaces += 4
       case FilterAdjoint => append(s"imageTensorElement = _tensorElement % $imageTensorPoints;\n")
       case PlaneByPlane => append("imageTensorElement = _tensorElement;\n")
+      case FilterAdjointBlockReduceSum =>
+        throw new RuntimeException(s"Internal compiler error: invalid vector mode ${operation.vectorMode} seen.")
     }
   }
 
@@ -182,6 +184,8 @@ class ConvolveTiledHyperKernel2 private (in: Array[VirtualFieldRegister],
         s"reductionIndex * ${filterTensorPoints / imageTensorPoints} + _tensorElement * $filtersPerWorkGroup;\n"
       case FilterAdjoint => s"_tensorElement / $imageTensorPoints;\n"
       case PlaneByPlane => "_tensorElement;\n"
+      case FilterAdjointBlockReduceSum =>
+        throw new RuntimeException(s"Internal compiler error: invalid vector mode ${operation.vectorMode} seen.")
     })
     )
   }
@@ -360,6 +364,8 @@ object ConvolveTiledHyperKernel2 extends HyperHelper {
           Shape(outputTensorPoints)
         else
           Shape()
+      case FilterAdjointBlockReduceSum =>
+        throw new RuntimeException(s"Internal compiler error: invalid vector mode ${vectorMode} seen.")
       case PlaneByPlane =>
         if (input.tensorOrder == 0)
           filter.tensorShape

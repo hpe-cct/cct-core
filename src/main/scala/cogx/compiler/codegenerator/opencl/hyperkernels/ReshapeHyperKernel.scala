@@ -104,6 +104,11 @@ object ReshapeHyperKernel {
     * @return The synthesized hyperkernel.
     */
   def apply(in: VirtualFieldRegister, op: ReshapeOp): HyperKernel = {
+    val inType = in.fieldType
+    val inPoints = inType.fieldShape.points * inType.tensorShape.points
+    val outPoints = op.fieldShape.points * op.tensorShape.points
+    if (inPoints != outPoints)
+      throw new RuntimeException(s"Reshape to different size field. Input field points = $inPoints (inType = $inType), Output field points = $outPoints (op = $op)")
     // The ReshapeHyperkernel was revised as of libcog 4.3 to behave differently in certain cases.
     // One could think of this as a "bug fix" since the intent was to preserve the same data layout during
     // reshapings, and the old kernel did not always do this.
@@ -112,7 +117,6 @@ object ReshapeHyperKernel {
     // out a warning to alert the user that the model behavior has changed:
 
     if (op.checkLegacyReshape) {
-      val inType = in.fieldType
       val inTypeTricky = inType.fieldShape.points > 1 && inType.tensorShape.points > 1
       val outTypeTricky = op.fieldShape.points > 1 && op.tensorShape.points > 1
 

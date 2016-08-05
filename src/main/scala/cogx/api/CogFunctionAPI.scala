@@ -1161,17 +1161,13 @@ trait CogFunctionAPI extends SemanticError with ImplicitConversions {
       // a N-plane VectorField and a K-plane image "representation" is used to reconstruct
       // a filter frame held as a K*N-plane VectorField.  To aide the coding of parameterized libraries,
       // we support the degenerate case of N or K equal to 1.
-      case FilterAdjoint =>
-        if (!isRealField(fieldType))
-          error("convolveFilterAdjoint/crossCorrelateFilterAdjoint requires a real image input," +
-            "found " + fieldType)
-        if (!isRealField(filterType))
-          error("convolveFilterAdjoint/crossCorrelateFilterAdjoint requires a real filter input," +
-            "found " + filterType)
-        if (fieldType.tensorOrder > 1)
-          tensorDimensionError(fieldType.tensorOrder, 1)
-        if (filterType.tensorOrder > 1)
-          tensorDimensionError(filterType.tensorOrder, 1)
+      case FilterAdjoint => checkProjection("convolveFilterAdjoint/crossCorrelateFilterAdjoint")
+
+      // "filter adjoint block reduce sum" convolution (or crossCorrelation) is where the image is held by
+      // a N-plane VectorField and a K-plane image "representation" is used to reconstruct
+      // a filter frame held as a K*N-plane VectorField.  To aide the coding of parameterized libraries,
+      // we support the degenerate case of N or K equal to 1.  Block reduction is typically by the batchsize.
+      case FilterAdjointBlockReduceSum => checkProjection("convolveFilterAdjoint/crossCorrelateFilterAdjoint")
 
       // "projectFrame" crossCorrelation is where the image is held by
       // a N-plane VectorField and the frame of K filters is represented as a
