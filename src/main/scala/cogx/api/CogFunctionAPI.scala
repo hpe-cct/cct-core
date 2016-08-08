@@ -1655,7 +1655,7 @@ trait CogFunctionAPI extends SemanticError with ImplicitConversions {
     * using standard matrix multiplication to produce the corresponding matrix
     * in the resulting matrix field.
     *
-    * For case (2), corresponding matrix/vector pari in `field` and `f2` are
+    * For case (2), corresponding matrix/vector pair in `field` and `f2` are
     * multiplied using standard matrix/vector multiplication to produce the
     * corresponding vector (a linear transformation of the input vector)
     * in the resulting vector field.
@@ -1668,7 +1668,36 @@ trait CogFunctionAPI extends SemanticError with ImplicitConversions {
     */
   def transform(field: Field, f2: Field): Field =
     if (f2.fieldType.tensorOrder == 2)
-      BinaryOperator(MatrixTransformMatrixOp(), field, f2)
+      BinaryOperator(MatrixTransformMatrixOp(false, false), field, f2)
+    else
+      BinaryOperator(MatrixTransformVectorOp, field, f2)
+
+  /** (1) Multiply a matrix field by a matrix field to produce a matrix field; or
+    * (2) multiply a matrix field by a vector field to produce a vector field.
+    *
+    * For case (1), corresponding matrices in `field` and `f2` are multiplied
+    * using standard matrix multiplication to produce the corresponding matrix
+    * in the resulting matrix field.
+    *
+    * For case (2), corresponding matrix/vector pair in `field` and `f2` are
+    * multiplied using standard matrix/vector multiplication to produce the
+    * corresponding vector (a linear transformation of the input vector)
+    * in the resulting vector field.
+    *
+    * This function is not part of the public API and is used in performance tests
+    * to explore the best mini-tile size of the MatrixMatrixTransform0DFieldTiledHyperKernel.
+    *
+    * @param field The input field.
+    * @param f2 Matrix field or vector field; must have the same field shape
+    *       as `field`.
+    * @param rowsPerThread Mini-tile row size to use, rather than the default.
+    * @param colsPerThread Mini-tile column size to use, rather than the default.
+    * @return Matrix field or vector representing the matrix multiplications of
+    *       corresponding elements in the two input fields.
+    */
+  private[cogx] def transformTiled(field: Field, f2: Field, rowsPerThread: Int, colsPerThread: Int): Field =
+    if (f2.fieldType.tensorOrder == 2)
+      BinaryOperator(MatrixTransformMatrixOp(false, false, Some(rowsPerThread), Some(colsPerThread)), field, f2)
     else
       BinaryOperator(MatrixTransformVectorOp, field, f2)
 

@@ -305,13 +305,14 @@ class Matrix(val rows: Int, val columns: Int, private[cogx] val data: Array[Floa
       for (c <- 0 until product.columns) {
         thisIndex = r * this.columns
         thatIndex = c
-        var dotProduct = 0.0f
+        // Internally use Double to help preserve precision of result for large matrices
+        var dotProduct = 0.0
         for (i <- 0 until this.columns) {
-          dotProduct += this(thisIndex) * that(thatIndex)
+          dotProduct += this(thisIndex).toDouble * that(thatIndex)
           thisIndex += 1
           thatIndex += thatStride
         }
-        product(r, c) += dotProduct
+        product(r, c) = dotProduct.toFloat
       }
     }
     product

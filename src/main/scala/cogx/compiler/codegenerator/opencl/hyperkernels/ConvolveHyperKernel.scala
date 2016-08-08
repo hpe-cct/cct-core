@@ -1045,8 +1045,9 @@ object ConvolveHyperKernel {
       val transformResultType =
         new FieldType(Shape(),Shape(logicalFilters,inputFeatures*resultPoints), inputs(0).fieldType.elementType)
       // Perform the filter adjoint operation as a matrix multiply that includes a reduction by the batchSize
-      val misShapedResult = MatrixMatrixTransformHyperKernel(transformInputs, MatrixTransformMatrixOp(false, false), transformResultType).outputs(0)
-      ReshapeHyperKernel(misShapedResult, ReshapeOp(resultType.fieldShape, resultType.tensorShape, false))
+      val unShapedResult = MatrixMatrixTransformHyperKernel(transformInputs,
+        MatrixTransformMatrixOp(false, false), transformResultType, codeGenParams).outputs(0)
+      ReshapeHyperKernel(unShapedResult, ReshapeOp(resultType.fieldShape, resultType.tensorShape, false))
     }
 
     borderPolicy match {

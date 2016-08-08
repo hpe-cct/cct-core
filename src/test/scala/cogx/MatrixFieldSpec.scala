@@ -1494,6 +1494,43 @@ class MatrixFieldSpec extends FunSuite with MustMatchers
 
   }
 
+  test("0D matrix field / 0D matrix field transform, explicit miniTile variations") {
+
+    def runTest(matrix1Rows: Int, matrix1Columns: Int, matrix2Columns: Int, simpleData: Boolean,
+                miniTileRows: Int, miniTileColumns: Int): Unit = {
+
+      def initData1(r: Int, c: Int) = if (simpleData) 1f else (r + 2 * c).toFloat
+      def initData2(r: Int, c: Int) = if (simpleData) 1f else (2*r + c).toFloat
+
+      val matrix2Rows = matrix1Columns
+      val matrix1Field = RefMatrixField(Matrix(matrix1Rows, matrix1Columns, (r: Int, c: Int) => initData1(r,c)))
+      val matrix2Field = RefMatrixField(Matrix(matrix2Rows, matrix2Columns, (r: Int, c: Int) => initData2(r,c)))
+
+      val expected = RefMatrixField(matrix1Field.read() * matrix2Field.read())
+
+      val graph = new ComputeGraph(Optimize) with RefTestInterface {
+        val m1 = TestMatrixField(matrix1Field)
+        val m2 = TestMatrixField(matrix2Field)
+        val transformed = transformTiled(m1, m2, miniTileRows, miniTileColumns)
+
+        probe(transformed)
+      }
+      import graph._
+      withRelease {
+        step
+//        readMatrix(transformed).read().print
+        require(readMatrix(transformed) ~== expected)
+      }
+    }
+
+    runTest(398, 580, 299, simpleData = false, 1, 1)
+    runTest(999, 305, 765, simpleData = false, 2, 2)
+    runTest(1035, 501, 888, simpleData = false, 2, 4)
+    runTest(1000, 500, 800, simpleData = false, 4, 2)
+    runTest(444, 555, 669, simpleData = false, 4, 4)
+
+  }
+
   test("0D matrix field / 0D matrix field transform with transposed 1st input") {
 
     def runTest(matrix1Rows: Int, matrix1Columns: Int, matrix2Columns: Int, simpleData: Boolean): Unit = {

@@ -17,9 +17,10 @@
 package cogx.compiler.codegenerator.opencl.hyperkernels
 
 import cogx.compiler.codegenerator.opencl.fragments.{BigTensorAddressing, HyperKernel}
-import cogx.platform.types.{VirtualFieldRegister, Opcode, FieldType}
+import cogx.platform.types.{FieldType, Opcode, VirtualFieldRegister}
 import cogx.cogmath.geometry.Shape
 import cogx.compiler.parser.op.MatrixTransformMatrixOp
+import cogx.platform.opencl.OpenCLKernelCodeGenParams
 
 /** Transform all matrices in a matrix field (second input) with corresponding
   * matrices in a matrix field (first input).  The field Shapes must match, or
@@ -110,16 +111,18 @@ class MatrixMatrixTransformHyperKernel private (in: Array[VirtualFieldRegister],
 private[cogx]
 object MatrixMatrixTransformHyperKernel {
   /**
-   * Creates a kernel that performs the matrix field transform.
-   *
-   * @param in The two input virtual field registers driving this kernel.
-   * @param op The binary opcode for this operation.
-   * @param resultType The FieldType of the result of this kernel.
-   * @return Synthesized hyperkernel for the operation.
-   */
+    * Creates a kernel that performs the matrix field transform.
+    *
+    * @param in The two input virtual field registers driving this kernel.
+    * @param op The binary opcode for this operation.
+    * @param resultType The FieldType of the result of this kernel.
+    * @param codeGenParams A bundle of platform parameters that affect kernel code generation and optimization.
+    * @return Synthesized hyperkernel for the operation.
+    */
   def apply(in: Array[VirtualFieldRegister],
             op: MatrixTransformMatrixOp,
-            resultType: FieldType): HyperKernel =
+            resultType: FieldType,
+            codeGenParams: OpenCLKernelCodeGenParams): HyperKernel =
   {
     require(in.length == 2, "Expecting two inputs, found " + in.length)
     val matrix1Type = in(0).fieldType
@@ -169,13 +172,16 @@ object MatrixMatrixTransformHyperKernel {
     require(resultType == expectedResultType,
       "Unexpected result FieldType: expected " + expectedResultType + ", actual " + resultType)
 
-    val approxTiledKernelThreads = resultType.tensorShape.points / (MatrixMatrixTransform0DFieldTiledHyperKernel.tileSize)
+//    val approxTiledKernelThreads = resultType.tensorShape.points / (MatrixMatrixTransform0DFieldTiledHyperKernel.tileSize)
 
     // An estimate, should be benchmarked.
-    val threadThreshold = 8000
+//    val threadThreshold = 1
+//    val threadThreshold = 5000
 
-    if (matrix1Type.dimensions == 0 && matrix2Type.dimensions == 0 && approxTiledKernelThreads > threadThreshold)
-      new MatrixMatrixTransform0DFieldTiledHyperKernel(in, op, resultType)
+    if (matrix1Type.dimensions == 0 &&
+        matrix2Type.dimensions == 0 &&
+        MatrixMatrixTransform0DFieldTiledHyperKernel.isRecommended(in, op, resultType))
+      MatrixMatrixTransform0DFieldTiledHyperKernel(in, op, resultType, codeGenParams)
     else if (matrix1Type.dimensions == 0 && matrix2Type.dimensions == 0)
       new MatrixMatrixTransform0DFieldHyperKernel(in, op, resultType)
     else

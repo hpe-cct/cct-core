@@ -151,6 +151,16 @@ class OpenCLDevice private[opencl](val clDevice: CLDevice,
     clDevice.getMaxMemAllocSize
   }
 
+  /** The number of compute units ("streaming multiprocessors" in the NVIDIA parlance. */
+  def maxMemComputeUnits: Long = {
+    clDevice.getMaxComputeUnits
+  }
+
+  /** The number of compute units ("streaming multiprocessors" in the NVIDIA parlance. */
+  def maxWorkgroupSize: Long = {
+    clDevice.getMaxWorkGroupSize
+  }
+
   /** Can the device execute kernels in parallel or out-of-order w.r.t. the CommandQueue enqueueing order? */
   private[cogx] lazy val supportsOutOfOrderCommandQueues = {
     val supported = clDevice.getQueueProperties.contains(CLCommandQueue.Mode.OUT_OF_ORDER_MODE)

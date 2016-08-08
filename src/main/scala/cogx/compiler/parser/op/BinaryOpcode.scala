@@ -106,8 +106,10 @@ private[cogx] case object JoinOp                    extends BinaryOpcode
 private[cogx] case object LessThanEqualsOp          extends BinaryOpcode with NeedsVectorLength
 private[cogx] case object LessThanOp                extends BinaryOpcode with NeedsVectorLength
 private[cogx] case class MatrixTransformMatrixOp(
-                           transposeIn1: Boolean = false,
-                           transposeIn2: Boolean = false) extends BinaryOpcode
+                           transposeIn1: Boolean,
+                           transposeIn2: Boolean,
+                           rowsPerThread: Option[Int] = None,
+                           colsPerThread: Option[Int] = None) extends BinaryOpcode
 private[cogx] case object MatrixTransformVectorOp   extends BinaryOpcode
 private[cogx] case object MaxOp                     extends BinaryOpcode
 private[cogx] case object MinOp                     extends BinaryOpcode

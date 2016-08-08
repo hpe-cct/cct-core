@@ -114,7 +114,7 @@ object TransformTransposeOptimizer extends Optimizer {
                       val mmIn2 = mmMultiplyKernel.inputs(1)
                       val newMmMultiply =
                         MatrixMatrixTransformHyperKernel(Array(mmIn2, mmIn1), newOp,
-                          tensorTransposeKernel.resultType)
+                          tensorTransposeKernel.resultType, codeGenParams)
                       newMmMultiply.outputs(0).stealProbeAndNameFrom(tensorTransposeKernel.outputs(0))
                       newMmMultiply.outputs(0).stealSinksFrom(tensorTransposeKernel.outputs(0))
                       tensorTransposeKernel.removeFromCircuit(mustDo = true)
@@ -142,7 +142,7 @@ object TransformTransposeOptimizer extends Optimizer {
                       val mmIn2 = mmMultiplyKernel.inputs(1)
                       val newMmMultiplyKernel =
                         MatrixMatrixTransformHyperKernel(Array(mmIn1, mmIn2), newOp,
-                          mmMultiplyKernel.resultTypes(0))
+                          mmMultiplyKernel.resultTypes(0), codeGenParams)
                       newMmMultiplyKernel.outputs(0).stealProbeAndNameFrom(mmMultiplyKernel.outputs(0))
                       newMmMultiplyKernel.outputs(0).stealSinksFrom(mmMultiplyKernel.outputs(0))
                       mmMultiplyKernel.removeFromCircuit(mustDo = true)
@@ -163,7 +163,7 @@ object TransformTransposeOptimizer extends Optimizer {
                           val mmIn2 = tensorTransposeKernel.inputs(0)
                           val newMmMultiplyKernel =
                             MatrixMatrixTransformHyperKernel(Array(mmIn1, mmIn2), newOp,
-                              mmMultiplyKernel.resultTypes(0))
+                              mmMultiplyKernel.resultTypes(0), codeGenParams)
                           newMmMultiplyKernel.outputs(0).stealProbeAndNameFrom(mmMultiplyKernel.outputs(0))
                           newMmMultiplyKernel.outputs(0).stealSinksFrom(mmMultiplyKernel.outputs(0))
                           mmMultiplyKernel.removeFromCircuit(mustDo = true)

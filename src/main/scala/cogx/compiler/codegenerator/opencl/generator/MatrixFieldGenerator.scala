@@ -105,7 +105,7 @@ object MatrixFieldGenerator {
       case VectorTransposeOp =>
         TensorTransposeHyperKernel(inputs, opcode, fieldType)
       case op: MatrixTransformMatrixOp =>
-        MatrixMatrixTransformHyperKernel(inputs, op, fieldType)
+        MatrixMatrixTransformHyperKernel(inputs, op, fieldType, codeGenParams)
       case MatrixInvertOp =>
         MatrixInvertHyperKernel(inputs(0), opcode, fieldType)
       case Transpose2DOp =>

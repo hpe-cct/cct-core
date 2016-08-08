@@ -20,6 +20,7 @@ import cogx.compiler.codegenerator.opencl.fragments._
 import cogx.platform.types._
 import cogx.cogmath.geometry.Shape
 import cogx.compiler.parser.op.MatrixTransformMatrixOp
+import cogx.platform.opencl.OpenCLKernelCodeGenParams
 
 /** Computes the matrix multiply of 2 fields considered to be matrices.
   *
@@ -56,15 +57,26 @@ import cogx.compiler.parser.op.MatrixTransformMatrixOp
   * @param in The input virtual field register driving this kernel.
   * @param op The binary opcode for this operation.
   * @param resultType The FieldType of the result of this kernel.
+  * @param codeGenParams A bundle of platform parameters that affect kernel code generation and optimization.
   *
   * @author Dick Carter
   */
 private[cogx]
-class MatrixMatrixTransform0DFieldTiledHyperKernel(in: Array[VirtualFieldRegister],
+class MatrixMatrixTransform0DFieldTiledHyperKernel private[MatrixMatrixTransform0DFieldTiledHyperKernel] (in: Array[VirtualFieldRegister],
                                     op: MatrixTransformMatrixOp,
-                                    resultType: FieldType)
+                                    resultType: FieldType, codeGenParams: OpenCLKernelCodeGenParams)
         extends HyperKernel(op, in, resultType, SmallTensorAddressing)
 {
+  val miniTileRows = op.rowsPerThread match {
+    case Some(x) => x
+    case None => throw new RuntimeException("Internal error: expecting explicit setting of miniTileRows.")
+  }
+
+  val miniTileColumns = op.colsPerThread match {
+    case Some(x) => x
+    case None => throw new RuntimeException("Internal error: expecting explicit setting of miniTileColumns.")
+  }
+
   val matrix1Type = in(0).fieldType
   val matrix1Shape = matrix1Type.tensorShape
   val matrix1Columns = matrix1Shape(1)
@@ -86,9 +98,6 @@ class MatrixMatrixTransform0DFieldTiledHyperKernel(in: Array[VirtualFieldRegiste
   // We want this kernel to run more like a 2D kernel, so we set the fictional
   // workfieldtype to be a ScalarField whose fieldshape is the kernel's result tensorshape.
 
-  import MatrixMatrixTransform0DFieldTiledHyperKernel.miniTileRows
-  import MatrixMatrixTransform0DFieldTiledHyperKernel.miniTileColumns
-
   var workGroupRows = 16
   var workGroupColumns = 16
   
@@ -107,8 +116,34 @@ class MatrixMatrixTransform0DFieldTiledHyperKernel(in: Array[VirtualFieldRegiste
       workGroupRows *= 2
   }
 
-  val tiledWorkGroupRows = workGroupRows * miniTileRows
-  val tiledWorkGroupColumns = workGroupColumns * miniTileColumns
+  val localMemSizeLimit = codeGenParams.localMemSize
+
+  def tiledWorkGroupRows = workGroupRows * miniTileRows
+  def tiledWorkGroupColumns = workGroupColumns * miniTileColumns
+
+  // More work should be done here with the padding.  While the padding generally helps with bank conflicts,
+  // the larger local memory size use can decrease occupancy, which can hurt overall throughput.  We might consider
+  // having one tile transposed at read-in so that the fma loop always processes the columns of both tiles.  That
+  // way, if the required input happens to be transposed already, then no column padding is needed for the read-in
+  // either.  We could also experiment with a no-padding layout where the normal element accessor is replaced with
+  // tile(row, (row + column) % columns).  This way there are no bank conflicts for either same-row or same-column
+  // accesses within a warp.
+  def workGroupColumnPadding = if (tiledWorkGroupColumns > 1 && tiledWorkGroupRows > 1) 1 else 0
+
+  def paddedTiledWorkGroupColumns = tiledWorkGroupColumns + workGroupColumnPadding
+  def localMemoryUse = 2 * tiledWorkGroupRows * paddedTiledWorkGroupColumns * 4L
+  def localMemoryUseOK = localMemoryUse < localMemSizeLimit
+
+  // Make adjustments to workGroupRows and workGroupColumns, rather than exceed a localMemorySize limit
+
+  while (workGroupRows > 1 && !localMemoryUseOK) {
+    workGroupRows /= 2
+    println(s"Reducing workGroupRows to $workGroupRows in order not to exceed a localMemorySize limit.")
+  }
+  while (workGroupColumns > 1 && !localMemoryUseOK) {
+    workGroupColumns /= 2
+    println(s"Reducing workGroupColumns to $workGroupColumns in order not to exceed a localMemorySize limit.")
+  }
 
   override lazy val workFieldType = new FieldType(globalWorkShape, Shape(), resultType.elementType)
   override lazy val workGroup =
@@ -140,19 +175,17 @@ class MatrixMatrixTransform0DFieldTiledHyperKernel(in: Array[VirtualFieldRegiste
   codeAppend(s"// Local memory holds a WorkGroupRows x WorkGroupColumns tile,\n")
   indent += 4
   // If local memory is a 2D structure, we need to add 1 to avoid bank conflicts
-  val bankConflictKiller =
-    if (tiledWorkGroupColumns > 1 && tiledWorkGroupRows > 1) {
-      codeAppend(s"// but we add 1 to columns to prevent bank conflicts.\n")
-      "+1"
-    }
-    else
-      ""
+  if (workGroupColumnPadding > 0)
+    codeAppend(s"// but we add $workGroupColumnPadding columns to prevent bank conflicts.\n")
+
+  require(localMemoryUseOK,
+    s"Internal error: kernel $this infeasible without exceeding localMemory limit of $localMemSizeLimit bytes.")
 
   // Tiles of the inputs, stored to speed the dot-product.
   // If the input fields need to be transposed, the transposition is performed when the tiles
   // are first written, not as they are then read.
-  codeAppend(s"__local float tile1[$tiledWorkGroupRows][$tiledWorkGroupColumns$bankConflictKiller];\n")
-  codeAppend(s"__local float tile2[$tiledWorkGroupRows][$tiledWorkGroupColumns$bankConflictKiller];\n")
+  codeAppend(s"__local float tile1[$tiledWorkGroupRows][$paddedTiledWorkGroupColumns];\n")
+  codeAppend(s"__local float tile2[$tiledWorkGroupRows][$paddedTiledWorkGroupColumns];\n")
 
   // All input and output fields are 0D MatrixFields.  We perform all reads and writes with
   // readElementNonLocal with the 'tensorElement' variable set appropriately.
@@ -201,6 +234,11 @@ class MatrixMatrixTransform0DFieldTiledHyperKernel(in: Array[VirtualFieldRegiste
     codeAppend(s"float retVal_${rTileIndex}_$cTileIndex = 0.0f;\n")
     codeAppend(s"float innerLoopSum_${rTileIndex}_$cTileIndex = 0.0f;\n")
   }
+  // Intermediates in support of the two-sum algorithm below
+  codeAppend(s"    float newRetVal = 0.0f;\n")
+  codeAppend(s"    float retValChange = 0.0f;\n")
+  codeAppend(s"    float newInnerLoopSum = 0.0f;\n")
+
   codeAppend(s"for (int i = 0; i < $minTileReads; i++) {\n")
 
   // Read a tile of the given input (1 or 2) based on a string-based description of the tile upper-left corner
@@ -302,20 +340,15 @@ class MatrixMatrixTransform0DFieldTiledHyperKernel(in: Array[VirtualFieldRegiste
     indent -= 4
     codeAppend(s"    }\n")
   }
-  for (rTileIndex <- 0 until miniTileRows; cTileIndex <- 0 until miniTileColumns) {
-    codeAppend(s"    retVal_${rTileIndex}_$cTileIndex += innerLoopSum_${rTileIndex}_$cTileIndex;\n")
-    codeAppend(s"    innerLoopSum_${rTileIndex}_$cTileIndex = 0.0f;\n")
-  }
-
-  // Have yet to play with this on the tiled version- may result in excessive register pressure,
-  // since the compiler may try to allocate these temp registers uniquely for each element of the mini-tile
   // Knuth et.al. TwoSum algorithm: overhead 6 flops, but outside inner loop and largely hidden by memory latency
   // Note that innerLoopSum will be left with a residual amount that could not be effectively summed into retVal.
-//  codeAppend(s"    float newRetVal = retVal + innerLoopSum;\n")
-//  codeAppend(s"    float retValChange = newRetVal - retVal;\n")
-//  codeAppend(s"    float newInnerLoopSum = (retVal - (newRetVal - retValChange)) + (innerLoopSum - retValChange);\n")
-//  codeAppend(s"    retVal = newRetVal;\n")
-//  codeAppend(s"    innerLoopSum = newInnerLoopSum;\n")
+  for (rTileIndex <- 0 until miniTileRows; cTileIndex <- 0 until miniTileColumns) {
+      codeAppend(s"    newRetVal = retVal_${rTileIndex}_$cTileIndex + innerLoopSum_${rTileIndex}_$cTileIndex;\n")
+      codeAppend(s"    retValChange = newRetVal - retVal_${rTileIndex}_$cTileIndex;\n")
+      codeAppend(s"    newInnerLoopSum = (retVal_${rTileIndex}_$cTileIndex - (newRetVal - retValChange)) + (innerLoopSum_${rTileIndex}_$cTileIndex - retValChange);\n")
+      codeAppend(s"    retVal_${rTileIndex}_$cTileIndex = newRetVal;\n")
+      codeAppend(s"    innerLoopSum_${rTileIndex}_$cTileIndex = newInnerLoopSum;\n")
+  }
 
   codeAppend(s"}\n")
   // Remember that the threads are assigned based on a virtual workField that has rows and columns equal
@@ -341,12 +374,57 @@ class MatrixMatrixTransform0DFieldTiledHyperKernel(in: Array[VirtualFieldRegiste
 }
 
 object MatrixMatrixTransform0DFieldTiledHyperKernel {
-  // These must be identical or a factor of 2 apart I think, since handling non-square
-  // tile size is tricky
+  // These must be identical or a factor of 2 apart I think, since handling non-square tile size is tricky
+  // Setting was best for big examples on Titan Black, Titan-X and 1080.  Smaller examples preferred 2x2 tile.
+  private val defaultMiniTileRows = 4
+  private val defaultMiniTileColumns = 2
 
-  // Setting was best for one big example on Titan Black, your GPU mileage may vary.
-  val miniTileRows = 4
-  val miniTileColumns = 2
+  def apply(in: Array[VirtualFieldRegister],
+            op: MatrixTransformMatrixOp,
+            resultType: FieldType, codeGenParams: OpenCLKernelCodeGenParams) = {
 
-  def tileSize = miniTileColumns * miniTileRows
+    // Making the miniTile rows and columns explicit in the opcode makes these parameters
+    // appear in the profiler output, which can be helpful.
+    val (miniTileRows, miniTileColumns) = miniTileSize(in, op, resultType)
+    val explicitOp = MatrixTransformMatrixOp(op.transposeIn1, op.transposeIn2, Some(miniTileRows), Some(miniTileColumns))
+
+    new MatrixMatrixTransform0DFieldTiledHyperKernel(in, explicitOp, resultType, codeGenParams)
+  }
+
+  // Figure out the best miniTile size, based on total thread count considerations, unless explicitly set in the op.
+  private def miniTileSize(in: Array[VirtualFieldRegister],
+                   op: MatrixTransformMatrixOp,
+                   resultType: FieldType) = {
+    def approxTiledKernelThreads(miniTileRows: Int, miniTileCols: Int) =
+      resultType.tensorShape.points / (miniTileRows*miniTileCols)
+    val threadsForGoodUtilization = 8000
+
+    val (threadDrivenMiniTileRows, threadDrivenMiniTileColumns) =
+      if (approxTiledKernelThreads(defaultMiniTileRows, defaultMiniTileColumns) > threadsForGoodUtilization)
+        (defaultMiniTileRows, defaultMiniTileColumns)
+      else if (approxTiledKernelThreads(defaultMiniTileRows/2, defaultMiniTileColumns) > threadsForGoodUtilization)
+        (defaultMiniTileRows/2, defaultMiniTileColumns)
+      else
+        (1, 1)
+
+    val miniTileRows = op.rowsPerThread match {
+      case Some(x) => x
+      case None => threadDrivenMiniTileRows
+    }
+
+    val miniTileColumns = op.colsPerThread match {
+      case Some(x) => x
+      case None => threadDrivenMiniTileColumns
+    }
+
+    (miniTileRows, miniTileColumns)
+  }
+
+  /** Give advice to MatrixMatrixTransform0DHyperKernel on whether to use this kernel. */
+  private[cogx] def isRecommended(in: Array[VirtualFieldRegister],
+                    op: MatrixTransformMatrixOp,
+                    resultType: FieldType) = {
+    val (miniTileRows, miniTileColumns) = miniTileSize(in, op, resultType)
+    miniTileRows * miniTileColumns > 1
+  }
 }
