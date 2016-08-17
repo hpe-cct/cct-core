@@ -29,7 +29,7 @@ import cogx.compiler.parser.op.FilterAdjointToeplitzOp
   *
   * The forward "project frame" operation performs a convolution of a multi-feature-plane input with a bank of
   * independent filters.  The convolution can be strided to effectively produce a downsampled output and also
-  * specifies a "border policy."  This kernel currently supports only the "BorderValid" policy in which
+  * specifies a "border policy."  This kernel currently supports only the "BorderValid" policy that stipulates
   * the filters never extend beyond the boundaries of the input.  The shapes of the inputs and outputs are:
   *
   *                Field type         Field shape                          Tensor shape
@@ -123,6 +123,43 @@ import cogx.compiler.parser.op.FilterAdjointToeplitzOp
   * Thus, we only anticipate seeing the FilterAdjoint vectorMode coupled with a filterOrientation
   * of CrossCorrelationOrientation.  We need not support the ConvolutionOrientation in this alternate approach
   * to the FilterAdjoint calculation.
+  *
+  * Finally, some thoughts on future work:
+  *
+  * For AlexNet layer1, batchSize=512, the Toeplitz matrix size is roughly 2.1 GB.
+  * This large size has multiple downsides:
+  *   - it requires Java reflection to create such a buffer through the JOCL interface (a fragile technique).
+  *   - it cannot be easily inspected from Java due to the 2GB limit for DirectBuffers.
+  *   - it might exceed the single-allocation limit of the GPU (as it would for GPU's like the NVIDIA 1080 with 8GB)
+  *   - it would bulk up the global memory footprint of the model, perhaps exceeding the total allocation limit.
+  *
+  * An approach to improve this situation would be to generate the Toeplitz matrix in chunks.  The chunks would be
+  * vertical slices through the monolithic matrix.  For AlexNet Layer1 for example, one natural division would be
+  * into 3 matrices, each of 121 columns, corresponding to the red, green, blue layers of the input.  After multiplying
+  * the gradient matrix by the 3 matrices separately, the 3 result matrices could be consolidated into a single
+  * interleaved matrix:
+  *
+  * val redFilterGradients = gradientIn.transform(redToeplitz)
+  * val greenFilterGradients = gradientIn.transform(greenToeplitz)
+  * val blueFilterGradients = gradientIn.transform(blueToeplitz)
+  *
+  * val redReshaped = redFilterGradients.reshape(Shape(11*11), Shape(96))
+  * val greenReshaped = greenFilterGradients.reshape(Shape(11*11), Shape(96))
+  * val blueReshaped = blueFilterGradients.reshape(Shape(11*11), Shape(96))
+  *
+  * val stacked = stack(redReshaped, greenReshaped, blueReshaped)
+  *
+  * val filterGradient = stacked.reshape(Shape(11,11), Shape(3*96))
+  *
+  * While this approach has the advantage of reducing the Toeplitz matrix footprint (since the chunks would likely
+  * share buffers), the small transform outputs might be less efficiently generated. For example, the highest
+  * efficiency matrix multiply currently has a "mini-tile" size of 8, so that kernel would run with only
+  * 11*11*96/8 = 1400 threads,  Some possible fixes could be:
+  *
+  *   - smaller workgroup size to boost the number of workgroups
+  *   - smaller mini-tile size, but not 1x1
+  *   - field.transform(fields: Array[Field])                  (might throw away footprint reduction benefit)
+  *   - get concurrent kernel execution working
   *
   * @author Dick Carter
   *

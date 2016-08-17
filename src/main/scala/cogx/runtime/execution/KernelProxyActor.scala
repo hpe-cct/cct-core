@@ -93,7 +93,7 @@ class InputProxyKernelActorFSM(proxyKernel: InputProxyKernel)
 
   private def doStep(step: Step, fieldData: FieldData) {
     val outputRegister = step.outputRegisters(0)
-    val outBuf = outputRegister.master.cpuMemory.asInstanceOf[AbstractFieldMemory]
+    val outBuf = outputRegister.master.cpuMemory
     fieldData.data.copyTo(outBuf)
     outputRegister.master.write
     step.outputTrigger.setComplete()

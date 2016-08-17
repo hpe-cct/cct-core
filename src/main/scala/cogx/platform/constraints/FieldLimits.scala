@@ -28,4 +28,7 @@ trait FieldLimits {
 
   /** Maximum supported tensor order for tensors in field. */
   val MaxTensorOrder = 2
+
+  /** Maximum size of a field in bytes for fields that need to be accessed by the CPU. */
+  val MaxDirectBufferSizeBytes: Long = Int.MaxValue.toLong
 }

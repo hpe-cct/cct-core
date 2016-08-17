@@ -30,11 +30,11 @@ package cogx.cogmath.geometry
 @SerialVersionUID(-618254321595421426L)
 final class Shape(private val sizes: Array[Int]) extends Serializable {
 
-  /**Create a dimensional shape with zero or more dimensions. */
+  /** Create a dimensional shape with zero or more dimensions. */
   @deprecated("drop 'new', use Shape(Int*) instead.", "4.0")
   def this(size: Int*) = this(size.toArray)
 
-  /**Get the size of the indexed "dimension". */
+  /** Get the size of the indexed "dimension". */
   def apply(dimension: Int) = sizes(dimension)
 
   /** Get the size of the last dimension. If this is 0-dimensions, returns 0.*/
@@ -45,15 +45,22 @@ final class Shape(private val sizes: Array[Int]) extends Serializable {
       sizes(sizes.length - 1)
   }
 
-  /**Number of dimensions for this shape. */
+  /** Number of dimensions for this shape. */
   val dimensions = sizes.length
 
-  /**Number of points in this discrete shape. */
-  val points = if (dimensions == 0) 1 else sizes.reduceLeft(_ * _)
+  /** Number of points in this discrete shape. Must be representable as an Int. */
+  lazy val points = {
+    if (longPoints > Int.MaxValue)
+      throw new RuntimeException(s"Number of Shape points $longPoints exceeds maximum of ${Int.MaxValue}.")
+    else
+      longPoints.toInt
+  }
 
-  /**Concatenate two shapes to form a higher dimensional shape. */
+  /** Number of points in this discrete shape as a Long. 0D Shapes have one point. */
+  val longPoints: Long = sizes.map(_.toLong).foldLeft(1L)(_ * _)
+
+  /** Concatenate two shapes to form a higher dimensional shape. */
   def concat(that: Shape) = new Shape(Array.concat(sizes, that.sizes))
-
 
   /** Reduces the Shape by a factor in each dimension, rounding up when
     * the original size is not an integer multiple of the downsample factor.
@@ -166,7 +173,7 @@ final class Shape(private val sizes: Array[Int]) extends Serializable {
   /** Convert a Shape to a String for debugging. */
   override def toString = toString("Shape")
 
-  /**Like ordinary toString but allows for a prefix besides "Shape" */
+  /** Like ordinary toString but allows for a prefix besides "Shape" */
   def toString(prefix: String) = {
     var string = prefix + "( "
     for (i <- 0 until dimensions)

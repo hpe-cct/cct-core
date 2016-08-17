@@ -17,7 +17,8 @@
 package cogx.platform.types
 
 import cogx.cogmath.hypercircuit.Hyperedge
-import cogx.platform.checkpoint.{ObjectRestorer, RestoreFactory, Saveable, ObjectSaver}
+import cogx.platform.checkpoint.{ObjectRestorer, ObjectSaver, RestoreFactory, Saveable}
+import cogx.platform.cpumemory.AbstractFieldMemory
 
 /** Base class for the "signal wire" that passes between a kernel output and any
   * kernel input that "sinks" the signal, for all platforms (CUDA or OpenCL).

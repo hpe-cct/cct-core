@@ -16,7 +16,7 @@
 
 package cogx.compiler.codegenerator.opencl.fragments
 
-import cogx.platform.types.{FieldMemoryLayout, FieldType}
+import cogx.platform.types.{FieldMemoryLayoutImpl, FieldType}
 import cogx.platform.types.ElementTypes.Complex32
 
 /** Creates a string containing multiple lines of #define statements that
@@ -29,12 +29,21 @@ object FieldDefines {
 
   /** Use the form "const int foo = 0" over "#define foo 0" */
   val UseConsts = true
-  /** Define a constant per the desired method based on `UseConsts` */
-  private def define(identifier: String, value: Int) = {
+
+  /** Define an int constant per the desired method based on `UseConsts` */
+  private def define(identifier: String, value: Int): String = {
     if (UseConsts)
       "    const int " + identifier + " = " + value + ";\n"
     else
       "#define " + identifier + " " + value + "\n"
+  }
+
+  /** Define a long constant per the desired method based on `UseConsts`.  Not really prepared to do so yet. */
+  private def define(identifier: String, value: Long): String = {
+    if (value > Int.MaxValue)
+      throw new RuntimeException(s"Field indexing not tested for field indices this large: $value")
+    else
+      define(identifier, value.toInt)
   }
 
   /** Create a declaration for a field in an OpenCL kernel parameter list.
@@ -47,7 +56,7 @@ object FieldDefines {
   def apply(name: String, fieldType: FieldType): String = {
     val fieldDimensions = fieldType.fieldShape.dimensions
     val tensorDimensions = fieldType.tensorShape.dimensions
-    val layout = new FieldMemoryLayout(fieldType)
+    val layout = new FieldMemoryLayoutImpl(fieldType)
     val buffer = new StringBuffer
     if (name == "")
       buffer.append("    // Work-group-determining field parameters " + fieldType + "\n")
@@ -67,7 +76,7 @@ object FieldDefines {
         // We must coerce 0D fields to 1D for OpenCL
         buffer.append(define(name + "_columns", 1))
     }
-    buffer.append(define(name + "_tensorElements", fieldType.tensorShape.points))
+    buffer.append(define(name + "_tensorElements", fieldType.tensorShape.longPoints))
     tensorDimensions match {
       case 2 =>
         buffer.append(define(name + "_tensorRows ",

@@ -31,5 +31,5 @@ import cogx.platform.types.FieldRegister
   * @author Greg Snider
   */
 private[cogx]
-class OpenCLFieldRegister(buffer0: OpenCLBuffer[_], buffer1: OpenCLBuffer[_] = null)
-  extends FieldRegister[OpenCLBuffer[_]](buffer0, buffer1)
+class OpenCLFieldRegister(buffer0: OpenCLBuffer, buffer1: OpenCLBuffer = null)
+  extends FieldRegister[OpenCLBuffer](buffer0, buffer1)

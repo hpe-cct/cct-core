@@ -21,7 +21,6 @@ import cogx.platform.types.ElementTypes.Float32
 import java.nio.FloatBuffer
 import cogx.platform.opencl._
 import cogx.platform.cpumemory.readerwriter.{ScalarFieldWriter, ScalarFieldReader, FieldReader}
-import cogx.cogmath.geometry.Shape
 
 /** CPU memory for a scalar field.
   *
@@ -35,7 +34,7 @@ import cogx.cogmath.geometry.Shape
 final class ScalarFieldMemory private[cpumemory] (fieldType: FieldType,
                                             bufferType: BufferType,
                                             commandQueue: OpenCLParallelCommandQueue = null)
-        extends AbstractFieldMemory(fieldType, bufferType)
+        extends AbstractFieldMemory(fieldType, bufferType, commandQueue)
         with ScalarFieldReader
         with ScalarFieldWriter
 {
@@ -43,18 +42,6 @@ final class ScalarFieldMemory private[cpumemory] (fieldType: FieldType,
   require(elementType == Float32)
   if (bufferType == PinnedDirectBuffer)
     require(commandQueue != null)
-
-  /** Low level byte buffer for this field, required by base class. */
-  _byteBuffer = {
-    bufferType match {
-      case PinnedDirectBuffer =>
-        allocatePinnedDirectByteBuffer(bufferSizeBytes, commandQueue)
-      case DirectBuffer =>
-        allocateDirectByteBuffer(bufferSizeBytes)
-      case IndirectBuffer =>
-        allocateIndirectByteBuffer(bufferSizeBytes)
-    }
-  }
 
   /** Byte buffer cast to appropriate buffer type to handle endianness. */
   _directBuffer = _byteBuffer.asFloatBuffer
@@ -509,78 +496,4 @@ final class ScalarFieldMemory private[cpumemory] (fieldType: FieldType,
     }
     println()
   }
-}
-
-
-/** Factory for creating ScalarFieldMemories.
-  *
-  * THIS IS ONLY USED FOR TESTING. NOT EXPORTED TO USERS.
-  */
-object ScalarFieldMemory {
-
-  /** Create a stand-alone 0D ScalarFieldMemory for testing.
-    *
-    * @param scalar The single scalar to put in the field.
-    * @return Initialized scalar field memory.
-    */
-  def apply(scalar: Float): ScalarFieldMemory = {
-    val fieldType =
-      new FieldType(Shape(), Shape(), Float32)
-    val bufferType = IndirectBuffer
-    val memory = new ScalarFieldMemory(fieldType, bufferType)
-    memory.write(scalar)
-    memory
-  }
-
-  /** Create a stand-alone 1D ScalarFieldMemory for testing.
-    *
-    * @param columns Columns in field.
-    * @param f Function which supplies a value for every point in the field.
-    * @return Initialized scalar field memory.
-    */
-  def apply(columns: Int, f:(Int) => Float): ScalarFieldMemory = {
-    val fieldType =
-      new FieldType(Shape(columns), Shape(), Float32)
-    val bufferType = IndirectBuffer
-    val memory = new ScalarFieldMemory(fieldType, bufferType)
-    for (r <- 0 until columns)
-      memory.write(r, f(r))
-    memory
-  }
-
-  /** Create a stand-alone 2D ScalarFieldMemory for testing.
-    *
-    * @param rows Rows in field.
-    * @param columns Columns in field.
-    * @param f Function which supplies a value for every point in the field.
-    * @return Initialized scalar field memory.
-    */
-  def apply(rows: Int, columns: Int, f:(Int, Int) => Float): ScalarFieldMemory = {
-    val fieldType =
-      new FieldType(Shape(rows, columns), Shape(), Float32)
-    val bufferType = IndirectBuffer
-    val memory = new ScalarFieldMemory(fieldType, bufferType)
-    for (r <- 0 until rows; c <- 0 until columns)
-      memory.write(r, c, f(r, c))
-    memory
-  }
-
-  /** Create a stand-alone 3D ScalarFieldMemory for testing.
-    *
-    * @param layers Layers in field.
-    * @param rows Rows in field.
-    * @param columns Columns in field.
-    * @param f Function which supplies a value for every point in the field.
-    * @return Initialized scalar field memory.
-    */
-  def apply(layers: Int, rows: Int, columns: Int, f:(Int, Int, Int) => Float): ScalarFieldMemory = {
-    val fieldType =
-      new FieldType(Shape(layers, rows, columns), Shape(), Float32)
-    val bufferType = IndirectBuffer
-    val memory = new ScalarFieldMemory(fieldType, bufferType)
-    for (l <- 0 until layers; r <- 0 until rows; c <- 0 until columns)
-      memory.write(l, r, c, f(l, r, c))
-    memory
-  }
-
 }

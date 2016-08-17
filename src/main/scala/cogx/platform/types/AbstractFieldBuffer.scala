@@ -23,9 +23,7 @@ import cogx.platform.cpumemory.AbstractFieldMemory
   *
   * A field buffer consists of both a CPU part (AbstractFieldMemory) and a
   * platform dependent GPU part. Only the CPU part is visible here, since the
-  * CPU part is platform dependent. This could be optimized to reduce
-  * CPU memory utilization, for example by allocation only GPU memory if the CPU
-  * memory is not used, but we allocate both for simplicity.
+  * GPU part is platform dependent. This could be optimized to reduce
   *
   * A CPU kernel reads a field buffer by calling `read`; the returned field
   * memory is a copy of the field data on the GPU. A CPU kernel writes a
@@ -35,16 +33,13 @@ import cogx.platform.cpumemory.AbstractFieldMemory
   * @author Greg Snider
   */
 private[cogx]
-trait AbstractFieldBuffer[T <: AbstractFieldMemory] {
-
-  /** The type of field held by this buffer. */
-  val fieldType: FieldType
+trait AbstractFieldBuffer {
 
   /** The CPU memory buffer holding the field data. */
-  def cpuMemory: T
+  def cpuMemory: AbstractFieldMemory
 
   /** Read the field, copying from the GPU if necessary. */
-  def read: T
+  def read: AbstractFieldMemory
 
   /** Write the field, copying to the GPU if necessary. */
   def write(): Unit

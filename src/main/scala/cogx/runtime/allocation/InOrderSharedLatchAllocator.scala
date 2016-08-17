@@ -26,13 +26,10 @@ import cogx.platform.types.{AbstractKernel, FieldType, VirtualFieldRegister}
 import scala.collection.mutable.ArrayBuffer
 
 /**
-  * An allocator of shared latches that are guaranteed to produce correct results even with
-  * an out-of-order command queue.
+  * An allocator of shared latches that are guaranteed to produce correct results under the assumption
+  * that kernels are executed in the order they are enqueued with no overlap.
   *
-  * Produces a set of shared latches guaranteed to work on any kernel launch order
-  * that preserves the semantics of the calculation.  For an OpenCL out-of-order queue,
-  * the kernels are allowed to run in an order unrelated to the order in which the kernels
-  * were enqueued, although ordering established by event linking is preserved.
+  * @author Dick Carter
   */
 class InOrderSharedLatchAllocator(kernelEnqueueOrder: Seq[OpenCLAbstractKernel]) extends SharedLatchAllocator {
   /** Process the kernel circuit from inputs to outputs, looking for latch
@@ -40,10 +37,8 @@ class InOrderSharedLatchAllocator(kernelEnqueueOrder: Seq[OpenCLAbstractKernel])
     */
   def calcSharedLatches(circuit: KernelCircuit, device: OpenCLDevice, bufferType: BufferType,
                                 requiresLatch: (VirtualFieldRegister) => Boolean) = {
-    /** Should we alert the user that earlier versions of this allocator mishandled their model? */
-//    val WarnAboutMishandledModels = true
-    /** Already used SharedLatches, grouped by FieldType. */
-    val latches = new collection.mutable.HashMap[FieldType, ArrayBuffer[SharedLatch]]()
+    /** Existing SharedLatches in a collection that permits intelligent sharing choices. */
+    val latches = new SharedLatchesByUtilization
     /** Map from a kernel to the set of kernels guaranteed to have executed before it. */
     val precursors =
       new IdentityHashMap[AbstractKernel, IdentityHashSet[AbstractKernel]]()
@@ -204,20 +199,14 @@ class InOrderSharedLatchAllocator(kernelEnqueueOrder: Seq[OpenCLAbstractKernel])
       kernel.outputs.foreach( virtualRegister => {
         if (requiresLatch(virtualRegister)) {
           // Any latch of the proper size?
-          latches.get(virtualRegister.fieldType) match {
-            case Some(sizedLatches) => // Found some latches of the proper size
-              // Look for a latch whose `lastConsumers` are all known to have
-              // executed (they are in this kernels precursors set)
-              sizedLatches.find(latchOKToUse(_,kernel)) match {
-                case Some(latch) => // Found a latch that can be used by this kernel
-                  latch.addVirtualRegister(virtualRegister, sealLatch(virtualRegister))
-                  buffersRemoved += 1
-                case None => // No latch of proper size can be used; make a new one
-                  sizedLatches += new SharedLatch(device, virtualRegister, sealLatch(virtualRegister), bufferType)
-              }
-            case None => // No latch of proper size exists, allocate a new one
+          val candidateLatches = latches.get(virtualRegister.fieldType)
+          candidateLatches.find(latchOKToUse(_,kernel)) match {
+            case Some(latch) => // Found a latch that can be used by this kernel
+              latch.addVirtualRegister(virtualRegister, sealLatch(virtualRegister))
+              buffersRemoved += 1
+            case None => // No latch of proper size can be used; make a new one
               val newLatch = new SharedLatch(device, virtualRegister, sealLatch(virtualRegister), bufferType)
-              latches.put(virtualRegister.fieldType, ArrayBuffer(newLatch))
+              latches.addLatch(virtualRegister.fieldType, newLatch)
           }
         }
       })
@@ -225,28 +214,21 @@ class InOrderSharedLatchAllocator(kernelEnqueueOrder: Seq[OpenCLAbstractKernel])
     })
 
     if (Cog.verboseOptimizer) {
-      latches.foreach(sizeGroup => {
-        val fieldType = sizeGroup._1
-        val sizedLatches = sizeGroup._2
-        println("********** " + fieldType + "**********")
-        sizedLatches.foreach(sharedLatch => {
-          print("Field Register(Latch) (" + sharedLatch.register.master + ", "  +
-            sharedLatch.register.slave + ") ")
-          println(sharedLatch.virtualRegisters.mkString("; "))
-        })
+      latches.values.foreach(sharedLatch => {
+        print("Field Register(Latch) (" + sharedLatch.register.master + ", "  +
+          sharedLatch.register.slave + ") ")
+        println(sharedLatch.virtualRegisters.mkString("; "))
       })
     }
 
     if (Cog.verboseOptimizer)
       println("    *** BufferSharing: " + buffersRemoved + " buffers removed.")
 
-    // Convert map of FieldType->List[SharedLatch] to map of Kernel->SharedLatch
+    // Convert the variously grouped SharedLatches into a map of Kernel -> SharedLatch
     val answer = new IdentityHashMap[VirtualFieldRegister, SharedLatch]() {
-      latches.values.foreach(sizedLatches =>
-        sizedLatches.foreach(latch =>
+      latches.values.foreach(latch =>
           latch.virtualRegisters.foreach(register => this.put(register, latch))
         )
-      )
     }
     answer
   }

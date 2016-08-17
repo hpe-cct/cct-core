@@ -16,7 +16,7 @@
 
 package cogx.compiler.codegenerator.opencl.fragments
 
-import cogx.platform.types.{FieldMemoryLayout, FieldType}
+import cogx.platform.types.{FieldMemoryLayoutImpl, FieldType}
 import cogx.platform.types.ElementTypes._
 
 /** Translates a read or write request in a user's hyperkernel code to
@@ -309,7 +309,7 @@ object FieldIO {
     // We don't know the type of the field being written, although we can
     // assume it's not an image. We let the OpenCL compiler figure this out.
     val offset = new StringBuffer
-    val layout = new FieldMemoryLayout(fieldType)
+    val layout = new FieldMemoryLayoutImpl(fieldType)
     val dimensions = fieldType.dimensions
 
     if (dimensions >= 3 && layout.layers > 1)

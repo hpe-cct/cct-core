@@ -55,7 +55,7 @@ object FFTConvolutionUtils extends Logarithm {
 
     def fieldRowStride(rows: Int, columns: Int) = {
       val dummyType = new FieldType(Shape(rows, columns), Shape(), imageType.elementType)
-      new FieldMemoryLayout(dummyType).fieldRowStride
+      new FieldMemoryLayoutImpl(dummyType).fieldRowStride
     }
 
     val rowApronSize = filterRows / 2

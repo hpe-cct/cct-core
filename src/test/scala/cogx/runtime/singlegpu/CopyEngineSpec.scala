@@ -59,7 +59,7 @@ class CopyEngineSpec extends FunSuite with MustMatchers {
   /** Make a OpenCL Buffer on a device with the specified bufferType and size. */
   def makeCLBuf(device: OpenCLDevice, fieldElements: Long, bufferType: BufferType) = {
     val fieldType = new FieldType(Shape(fieldElements.toInt), Shape(), Float32)
-    val buf = device.createFieldBuffer(fieldType, bufferType).asInstanceOf[OpenCLBuffer[ScalarFieldMemory]]
+    val buf = device.createFieldBuffer(fieldType, bufferType)
     // Instantiate cpu portion of buffer
     buf.cpuMemory
     val clbuf = buf.deviceBuffer.asInstanceOf[CLBuffer[_]]

@@ -774,7 +774,7 @@ class ConvolutionParams (inputs: Array[VirtualFieldRegister],
 
   private val filterVolumeOneTensorPlane = filterLayers*filterRows*filterColumns
   private val globalMemoryFilterVolumeBytes =
-    4 * filterTensorPoints * new FieldMemoryLayout(filterType).pageSize
+    4 * filterTensorPoints * new FieldMemoryLayoutImpl(filterType).pageSize
 
   private val imagePoints = imageType.fieldShape.points
 

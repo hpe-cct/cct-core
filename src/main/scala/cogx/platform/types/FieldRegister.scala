@@ -29,16 +29,16 @@ package cogx.platform.types
   * @author Greg Snider
   */
 private[cogx]
-class FieldRegister[T <: AbstractFieldBuffer[_]](buffer0: T, buffer1: T = null) {
+class FieldRegister[T <: AbstractFieldBuffer](buffer0: T, buffer1: T = null) {
   require(buffer0 != null)
   /** True if this is a flip-flop, false if it's a latch. */
   val isFlipFlop = buffer1 != null
   /** Buffers holding data in register: one (for latch) or two (for flip-flop)*/
   private val buffers =
     if (isFlipFlop)
-      Array[AbstractFieldBuffer[_]](buffer0, buffer1)
+      Array[AbstractFieldBuffer](buffer0, buffer1)
     else
-      Array[AbstractFieldBuffer[_]](buffer0, buffer0)
+      Array[AbstractFieldBuffer](buffer0, buffer0)
   /** Name attached to register, used only user-level debugging. */
   var name: String = ""
 

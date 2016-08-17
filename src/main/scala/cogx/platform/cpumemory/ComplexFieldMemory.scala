@@ -36,7 +36,7 @@ import cogx.cogmath.geometry.Shape
 final class ComplexFieldMemory private[cpumemory] (fieldType: FieldType,
                                              bufferType: BufferType,
                                              commandQueue: OpenCLParallelCommandQueue = null)
-        extends AbstractFieldMemory(fieldType, bufferType)
+        extends AbstractFieldMemory(fieldType, bufferType, commandQueue)
         with ComplexFieldReader
         with ComplexFieldWriter
 {
@@ -46,17 +46,6 @@ final class ComplexFieldMemory private[cpumemory] (fieldType: FieldType,
   if (bufferType == PinnedDirectBuffer)
     require(commandQueue != null)
 
-  /** Low level byte buffer for this field, required by base class. */
-  _byteBuffer = {
-    bufferType match {
-      case PinnedDirectBuffer =>
-        allocatePinnedDirectByteBuffer(bufferSizeBytes, commandQueue)
-      case DirectBuffer =>
-        allocateDirectByteBuffer(bufferSizeBytes)
-      case IndirectBuffer =>
-        allocateIndirectByteBuffer(bufferSizeBytes)
-    }
-  }
   /** Byte buffer cast to appropriate buffer type to handle endianness. */
   _directBuffer = _byteBuffer.asFloatBuffer
 
@@ -132,8 +121,8 @@ final class ComplexFieldMemory private[cpumemory] (fieldType: FieldType,
     */
   private def readComplex(startIndex: Int): Complex = {
     var index = startIndex
-    val real = directBuffer.asInstanceOf[FloatBuffer].get(index)
-    val imaginary = directBuffer.asInstanceOf[FloatBuffer].get(index + partStride)
+    val real = directBuffer.get(index)
+    val imaginary = directBuffer.get(index + partStride)
     new Complex(real, imaginary)
   }
 
@@ -144,8 +133,8 @@ final class ComplexFieldMemory private[cpumemory] (fieldType: FieldType,
     */
   private def writeComplex(startIndex: Int, from: Complex) {
     var index = startIndex
-    directBuffer.asInstanceOf[FloatBuffer].put(index, from.real)
-    directBuffer.asInstanceOf[FloatBuffer].put(index + partStride, from.imaginary)
+    directBuffer.put(index, from.real)
+    directBuffer.put(index + partStride, from.imaginary)
   }
 
   /** Fill memory with values produced by `generator`. */

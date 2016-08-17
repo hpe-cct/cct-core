@@ -36,7 +36,7 @@ import cogx.cogmath.geometry.Shape
 final class VectorFieldMemory private[cpumemory] (fieldType: FieldType,
                                             bufferType: BufferType,
                                             commandQueue: OpenCLParallelCommandQueue = null)
-        extends AbstractFieldMemory(fieldType, bufferType)
+        extends AbstractFieldMemory(fieldType, bufferType, commandQueue)
         with VectorFieldReader
         with VectorFieldWriter
 {
@@ -46,17 +46,6 @@ final class VectorFieldMemory private[cpumemory] (fieldType: FieldType,
     require(commandQueue != null)
   private val writable = true
 
-  /** Low level byte buffer for this field, required by base class. */
-  _byteBuffer = {
-    bufferType match {
-      case PinnedDirectBuffer =>
-        allocatePinnedDirectByteBuffer(bufferSizeBytes, commandQueue)
-      case DirectBuffer =>
-        allocateDirectByteBuffer(bufferSizeBytes)
-      case IndirectBuffer =>
-        allocateIndirectByteBuffer(bufferSizeBytes)
-    }
-  }
   /** Byte buffer cast to appropriate buffer type to handle endianness. */
   _directBuffer = _byteBuffer.asFloatBuffer
 
@@ -291,80 +280,4 @@ final class VectorFieldMemory private[cpumemory] (fieldType: FieldType,
     throw new RuntimeException("not implemented yet")
   }
 
-}
-
-
-/** Factory for creating VectorFieldMemories.
-  *
-  * THIS IS ONLY USED FOR TESTING. NOT EXPORTED TO USERS.
-  */
-object VectorFieldMemory {
-
-  /** Create a stand-alone 0D VectorFieldMemory for testing.
-    *
-    * @param vector The single vector in the field.
-    * @return Initialized vector field memory.
-    */
-  def apply(vector: Vector): VectorFieldMemory = {
-    val fieldType =
-      new FieldType(Shape(), Shape(vector.length), Float32)
-    val bufferType = IndirectBuffer
-    val memory = new VectorFieldMemory(fieldType, bufferType)
-    memory.write(vector)
-    memory
-  }
-
-  /** Create a stand-alone 1D VectorFieldMemory for testing.
-    *
-    * @param columns Columns in field.
-    * @param f Function which supplies a value for every point in the field.
-    * @return Initialized vector field memory.
-    */
-  def apply(columns: Int, f:(Int) => Vector): VectorFieldMemory = {
-    val vectorLength = f(0).length
-    val fieldType =
-      new FieldType(Shape(columns), Shape(vectorLength), Float32)
-    val bufferType = IndirectBuffer
-    val memory = new VectorFieldMemory(fieldType, bufferType)
-    for (r <- 0 until columns)
-      memory.write(r, f(r))
-    memory
-  }
-
-  /** Create a stand-alone 2D VectorFieldMemory for testing.
-    *
-    * @param rows Rows in field.
-    * @param columns Columns in field.
-    * @param f Function which supplies a value for every point in the field.
-    * @return Initialized vector field memory.
-    */
-  def apply(rows: Int, columns: Int, f:(Int, Int) => Vector): VectorFieldMemory = {
-    val vectorLength = f(0, 0).length
-    val fieldType =
-      new FieldType(Shape(rows, columns), Shape(vectorLength), Float32)
-    val bufferType = IndirectBuffer
-    val memory = new VectorFieldMemory(fieldType, bufferType)
-    for (r <- 0 until rows; c <- 0 until columns)
-      memory.write(r, c, f(r, c))
-    memory
-  }
-
-  /** Create a stand-alone 3D VectorFieldMemory for testing.
-    *
-    * @param layers Layers in field.
-    * @param rows Rows in field.
-    * @param columns Columns in field.
-    * @param f Function which supplies a value for every point in the field.
-    * @return Initialized vector field memory.
-    */
-  def apply(layers: Int, rows: Int, columns: Int, f:(Int, Int, Int) => Vector): VectorFieldMemory = {
-    val vectorLength = f(0, 0, 0).length
-    val fieldType =
-      new FieldType(Shape(layers, rows, columns), Shape(vectorLength), Float32)
-    val bufferType = IndirectBuffer
-    val memory = new VectorFieldMemory(fieldType, bufferType)
-    for (l <- 0 until layers; r <- 0 until rows; c <- 0 until columns)
-      memory.write(l, r, c, f(l, r, c))
-    memory
-  }
 }

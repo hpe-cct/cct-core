@@ -21,7 +21,7 @@ import cogx.platform.opencl.{OpenCLAbstractKernel, OpenCLDevice, OpenCLFieldRegi
 import cogx.compiler.codegenerator.opencl.cpukernels._
 import cogx.cogmath.collection.IdentityHashSet
 import cogx.platform.cpumemory.{BufferType, DirectBuffer}
-import cogx.platform.types.VirtualFieldRegister
+import cogx.platform.types.{FieldMemoryLayoutImpl, FieldType, VirtualFieldRegister}
 
 import scala.collection.mutable.ArrayBuffer
 import cogx.parameters.Cog
@@ -150,11 +150,11 @@ object AllocateFieldRegisters {
           sharedLatch.get(virtualRegister) match {
             case Some(latch) => latch.register
             case None => // No latch?  Must be a DAG leaf node like a constant input or sensor.
-              allocateFieldLatch(device, virtualRegister, bufferType)
+              allocateFieldLatch(device, virtualRegister.fieldType, bufferType)
           }
         else {
           // See class comments about pinned buffers
-          allocateFieldLatch(device, virtualRegister, bufferType)
+          allocateFieldLatch(device, virtualRegister.fieldType, bufferType)
         }
       virtualRegister.bindRegister(register)
     }
@@ -162,9 +162,20 @@ object AllocateFieldRegisters {
 
 
   /** Allocate a FieldRegister and OpenCL Buffer for this kernel on the device */
-  def allocateFieldLatch(device: OpenCLDevice, virtualRegister: VirtualFieldRegister, bufferType: BufferType) = {
+  def allocateFieldLatch(device: OpenCLDevice, cpuUseFieldType: FieldType, bufferType: BufferType) = {
+    val gpuBufferCapacityBytes = new FieldMemoryLayoutImpl(cpuUseFieldType).longBufferSizeBytes
     val buffer =
-      device.createFieldBuffer(virtualRegister.fieldType, bufferType)
+      device.createFieldBuffer(cpuUseFieldType, bufferType, gpuBufferCapacityBytes)
+    new OpenCLFieldRegister(buffer)
+  }
+
+  /** Allocate a FieldRegister and OpenCL Buffer for this kernel on the device.
+    * May have multiple gpu-side uses whose size exceeds the single (at most) cpu-side use.
+    */
+  def allocateFieldLatch(device: OpenCLDevice, cpuUseFieldType: FieldType,
+                         bufferType: BufferType, gpuBufferCapacityBytes: Long) = {
+    val buffer =
+      device.createFieldBuffer(cpuUseFieldType, bufferType, gpuBufferCapacityBytes)
     new OpenCLFieldRegister(buffer)
   }
 

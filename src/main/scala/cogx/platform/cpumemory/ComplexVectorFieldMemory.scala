@@ -35,7 +35,7 @@ import cogx.platform.cpumemory.readerwriter._
 final class ComplexVectorFieldMemory private[cogx] (fieldType: FieldType,
                                               bufferType: BufferType,
                                               commandQueue: OpenCLParallelCommandQueue = null)
-        extends AbstractFieldMemory(fieldType, bufferType)
+        extends AbstractFieldMemory(fieldType, bufferType, commandQueue)
         with ComplexVectorFieldReader
         with ComplexVectorFieldWriter
 {
@@ -45,17 +45,6 @@ final class ComplexVectorFieldMemory private[cogx] (fieldType: FieldType,
     require(commandQueue != null)
   private val writable = true
 
-  /** Low level byte buffer for this field, required by base class. */
-  _byteBuffer = {
-    bufferType match {
-      case PinnedDirectBuffer =>
-        allocatePinnedDirectByteBuffer(bufferSizeBytes, commandQueue)
-      case DirectBuffer =>
-        allocateDirectByteBuffer(bufferSizeBytes)
-      case IndirectBuffer =>
-        allocateIndirectByteBuffer(bufferSizeBytes)
-    }
-  }
   /** Byte buffer cast to appropriate buffer type to handle endianness. */
   _directBuffer = _byteBuffer.asFloatBuffer
 

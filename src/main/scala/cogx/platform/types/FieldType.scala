@@ -111,6 +111,9 @@ class FieldType(val fieldShape: Shape,
     }
   }
 
+  /** Is this FieldType an image (requiring an OpenCL Image Memory, not a Buffer Memory)? */
+  def isImage = elementType == Uint8Pixel
+
   /** Compare `this` and `that` for value equality. */
   override def equals(that: Any): Boolean = {
     that match {

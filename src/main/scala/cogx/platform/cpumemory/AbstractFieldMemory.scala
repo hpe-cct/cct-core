@@ -35,12 +35,28 @@ import cogx.platform.cpumemory.readerwriter.FieldReader
   *
   * @author Greg Snider
   */
-abstract class AbstractFieldMemory(fieldType: FieldType, val bufferType: BufferType)
-        extends FieldMemoryLayout(fieldType)
+abstract class AbstractFieldMemory(val fieldType: FieldType, val bufferType: BufferType, commandQueue: OpenCLParallelCommandQueue)
+        extends FieldMemoryLayout
         with FieldReader
 {
   /** The actual memory for the field. */
-  protected var _byteBuffer: ByteBuffer = null
+  protected var _byteBuffer: ByteBuffer = {
+    // NIO buffers must be less than 2GB in size because their capacity, limit, position, etc. are
+    // Int fields.  One might think that FloatBuffers could be 4X bigger, but such is not the case since
+    // they are created as ByteBuffer.asFloatBuffer.  If we're asking here to create a ByteBuffer >= 2GB
+    // in size, it's time to throw an exception, which we do here by referencing 'bufferSizeBytes', which
+    // returns the size as an Int, but only if this is possible
+    bufferType match {
+      case PinnedDirectBuffer =>
+        AbstractFieldMemory.allocatePinnedDirectByteBuffer(bufferSizeBytes, commandQueue)
+      case DirectBuffer =>
+        AbstractFieldMemory.allocateDirectByteBuffer(bufferSizeBytes)
+      case IndirectBuffer =>
+        AbstractFieldMemory.allocateIndirectByteBuffer(bufferSizeBytes)
+    }
+  }
+
+
   protected var _directBuffer: Buffer = null
 
   /** The direct buffer for this memory. This is always a view of _byteBuffer,
@@ -64,71 +80,6 @@ abstract class AbstractFieldMemory(fieldType: FieldType, val bufferType: BufferT
     sourceBuf.rewind // prepare for reading
     that._byteBuffer.put(sourceBuf)
     that._byteBuffer.flip   // writing done, prepare for reading
-  }
-
-  /** Allocates a direct ByteBuffer with native ordering.
-    *
-    * @param bytes Number of bytes in the buffer
-    * @return A direct byte buffer.
-    */
-  protected def allocateDirectByteBuffer(bytes: Int): ByteBuffer = {
-    try {
-      // Buffers documentation claims this always allocates native order.
-      Buffers.newDirectByteBuffer(bytes)
-    } catch {
-      case e: com.jogamp.opencl.CLException =>
-        println(e.toString)
-        System.gc()
-        try {
-          Buffers.newDirectByteBuffer(bytes)
-        } catch {
-          case x: com.jogamp.opencl.CLException =>
-            println(x.toString)
-            System.gc()
-            Buffers.newDirectByteBuffer(bytes)
-        }
-      case x: Throwable =>
-        println(x.toString)
-        throw x
-    }
-  }
-
-  /** Allocates an indirect ByteBuffer with native ordering.
-    *
-    * @param bytes Number of bytes in the buffer
-    * @return An indirect byte buffer.
-    */
-  protected def allocateIndirectByteBuffer(bytes: Int): ByteBuffer = {
-    val buffer = ByteBuffer.allocate(bytes)
-    buffer.order(ByteOrder.nativeOrder)
-    buffer
-  }
-
-  /** Allocates a pinned, direct ByteBuffer with native (?) ordering.
-    *
-    * There is no way in OpenCL to create a pinned buffer, but the "NVIDIA
-    * OpenCL Best Practices Guide" suggests that this has the highest
-    * probability of success.
-    *
-    * @param bytes Number of bytes in the buffer
-    * @param commandQueue Command queue needed for mapping allocated buffer to
-    *        a direct buffer.
-    * @return A pinned, direct byte buffer.
-    */
-  protected def allocatePinnedDirectByteBuffer(bytes: Int,
-                 commandQueue: OpenCLParallelCommandQueue): ByteBuffer =
-  {
-    val context = commandQueue.clContext
-    val buf: CLBuffer[_] = context.createBuffer(bytes, Mem.ALLOCATE_BUFFER)
-    val byteBuffer = commandQueue.putMapBuffer(buf, Map.READ_WRITE)
-    // Now that we have coaxed the system into creating a pinned ByteBuffer,
-    // we can throw away the CLBuffer (freeing its implied GPU global memory allocation).
-
-    // Update: the following approach causes JVM crashes on the AMDSDK 2.9.1.  No crashes
-    // are seen if the buffer is not released, so it seems that the CLBuffer.release may
-    // be affecting the associated ByteBuffer.  Further study is needed.
-    buf.release
-    byteBuffer
   }
 
   private var _destroyed = false
@@ -155,4 +106,72 @@ abstract class AbstractFieldMemory(fieldType: FieldType, val bufferType: BufferT
 
   /** Print out the field for debugging. */
   def print(): Unit
+}
+
+object AbstractFieldMemory {
+  /** Allocates a direct ByteBuffer with native ordering.
+    *
+    * @param bytes Number of bytes in the buffer
+    * @return A direct byte buffer.
+    */
+  private[cpumemory] def allocateDirectByteBuffer(bytes: Int): ByteBuffer = {
+    try {
+      // Buffers documentation claims this always allocates native order.
+      Buffers.newDirectByteBuffer(bytes)
+    } catch {
+      case e: com.jogamp.opencl.CLException =>
+        println(e.toString)
+        System.gc()
+        try {
+          Buffers.newDirectByteBuffer(bytes)
+        } catch {
+          case x: com.jogamp.opencl.CLException =>
+            println(x.toString)
+            System.gc()
+            Buffers.newDirectByteBuffer(bytes)
+        }
+      case x: Throwable =>
+        println(x.toString)
+        throw x
+    }
+  }
+
+  /** Allocates an indirect ByteBuffer with native ordering.
+    *
+    * @param bytes Number of bytes in the buffer
+    * @return An indirect byte buffer.
+    */
+  private[cpumemory] def allocateIndirectByteBuffer(bytes: Int): ByteBuffer = {
+    val buffer = ByteBuffer.allocate(bytes)
+    buffer.order(ByteOrder.nativeOrder)
+    buffer
+  }
+
+  /** Allocates a pinned, direct ByteBuffer with native (?) ordering.
+    *
+    * There is no way in OpenCL to create a pinned buffer, but the "NVIDIA
+    * OpenCL Best Practices Guide" suggests that this has the highest
+    * probability of success.
+    *
+    * @param bytes Number of bytes in the buffer
+    * @param commandQueue Command queue needed for mapping allocated buffer to
+    *        a direct buffer.
+    * @return A pinned, direct byte buffer.
+    */
+  private[cpumemory] def allocatePinnedDirectByteBuffer(bytes: Int,
+                                               commandQueue: OpenCLParallelCommandQueue): ByteBuffer =
+  {
+    val context = commandQueue.clContext
+    val buf: CLBuffer[_] = context.createBuffer(bytes, Mem.ALLOCATE_BUFFER)
+    val byteBuffer = commandQueue.putMapBuffer(buf, Map.READ_WRITE)
+    // Now that we have coaxed the system into creating a pinned ByteBuffer,
+    // we can throw away the CLBuffer (freeing its implied GPU global memory allocation).
+
+    // Update: the following approach causes JVM crashes on the AMDSDK 2.9.1.  No crashes
+    // are seen if the buffer is not released, so it seems that the CLBuffer.release may
+    // be affecting the associated ByteBuffer.  Further study is needed.
+    buf.release
+    byteBuffer
+  }
+
 }

@@ -38,7 +38,7 @@ import cogx.cogmath.geometry.Shape
 final class ColorFieldMemory private[cpumemory] (fieldType: FieldType,
                                            bufferType: BufferType,
                                            commandQueue: OpenCLParallelCommandQueue = null)
-        extends AbstractFieldMemory(fieldType, bufferType)
+        extends AbstractFieldMemory(fieldType, bufferType, commandQueue)
         with ColorFieldReader
         with ColorFieldWriter
 {
@@ -47,17 +47,6 @@ final class ColorFieldMemory private[cpumemory] (fieldType: FieldType,
   if (bufferType == PinnedDirectBuffer)
     require(commandQueue != null)
 
-  /** Low level byte buffer for this field, required by base class. */
-  _byteBuffer = {
-    bufferType match {
-      case PinnedDirectBuffer =>
-        allocatePinnedDirectByteBuffer(bufferSizeBytes, commandQueue)
-      case DirectBuffer =>
-        allocateDirectByteBuffer(bufferSizeBytes)
-      case IndirectBuffer =>
-        allocateIndirectByteBuffer(bufferSizeBytes)
-    }
-  }
   /** Byte buffer cast to appropriate buffer type to handle endianness. */
   _directBuffer = _byteBuffer
 

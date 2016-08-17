@@ -18,9 +18,10 @@ package cogx
 
 import org.junit.runner.RunWith
 import org.scalatest.junit.JUnitRunner
-import cogx.reference.RefTestInterface
+import cogx.reference.{RefScalarField, RefTestInterface}
 import org.scalatest.FunSuite
 import cogx.helper.{ScalarFieldBuilderInterface, VectorFieldBuilderInterface}
+import cogx.platform.opencl.OpenCLPlatform
 
 /** Tests for the allocators, which map the storage needs of the VirtualFieldRegisters to a set of shared field buffers.
   *
@@ -66,41 +67,111 @@ class SharedLatchAllocatorSpec extends FunSuite
     }
 
     def testWithOutOfOrderExecution(outOfOrder: Boolean): Unit = {
-      Cog.outOfOrderExecution = outOfOrder
-      val graph = new ComputeGraph(fftUse = UseFFTNever) with RefTestInterface {
+      val savedOutOfOrderExecutionFlag = Cog.outOfOrderExecution
+      try {
+        Cog.outOfOrderExecution = outOfOrder
+        val graph = new ComputeGraph(fftUse = UseFFTNever) with RefTestInterface {
 
-        val in = ScalarField(Size, Size)
-        // A big filter that does little: only a single 1f value in the center means that it passes input to output
-        val filter = ScalarField(FilterSize, FilterSize, (r,c) => if (r == FilterSize/2 && c == FilterSize/2) 1f else 0f)
-        val inPlus1 = in + 1f
+          val in = ScalarField(Size, Size)
+          // A big filter that does little: only a single 1f value in the center means that it passes input to output
+          val filter = ScalarField(FilterSize, FilterSize, (r,c) => if (r == FilterSize/2 && c == FilterSize/2) 1f else 0f)
+          val inPlus1 = in + 1f
 
-        val slowGPUOut = inPlus1.convolve(filter, BorderZero)
-        val outCPU = setCorners(10f)(in)
+          val slowGPUOut = inPlus1.convolve(filter, BorderZero)
+          val outCPU = setCorners(10f)(in)
 
-        probe(in, outCPU, slowGPUOut)
-      }
-
-      import graph._
-      withRelease {
-        step
-        val expected = 1.0f
-        def good(value: Float) = math.abs(expected - value) < 0.00001
-
-        def check(row: Int, col: Int): Unit = {
-          val valueRead = readScalar(slowGPUOut).read(row, col)
-          val good = math.abs(expected - valueRead) < 0.00001
-          require(good, s"Mismatch at (r,c) = ($row,$col), value = $valueRead, expected $expected.")
+          probe(in, outCPU, slowGPUOut)
         }
-        // Only the output corners are disturbed in a deterministic way
-        check(0,0)
-        check(0, Size-1)
-        check(Size-1, 0)
-        check(Size-1, Size-1)
+
+        import graph._
+        withRelease {
+          step
+          val expected = 1.0f
+          def good(value: Float) = math.abs(expected - value) < 0.00001
+
+          def check(row: Int, col: Int): Unit = {
+            val valueRead = readScalar(slowGPUOut).read(row, col)
+            val good = math.abs(expected - valueRead) < 0.00001
+            require(good, s"Mismatch at (r,c) = ($row,$col), value = $valueRead, expected $expected.")
+          }
+          // Only the output corners are disturbed in a deterministic way
+          check(0,0)
+          check(0, Size-1)
+          check(Size-1, 0)
+          check(Size-1, Size-1)
+        }
       }
-    }
+      finally
+        Cog.outOfOrderExecution = savedOutOfOrderExecutionFlag
+   }
 
     testWithOutOfOrderExecution(false)  // Should use the InOrderSharedLatchAllocator
     testWithOutOfOrderExecution(true)   // Should use the OutOfOrderSharedLatchAllocator
 
   }
+
+  /** Test that the default device for the platform can allocate a single buffer as big as it promises it can.
+    */
+  test("maximum gpu buffer allocation") {
+
+    val numDevices = OpenCLPlatform().devices.length
+
+    def testMaxAlloc(deviceIndex: Int): Unit = {
+      val cg = new ComputeGraph(device = Some(deviceIndex)) with RefTestInterface {
+        val maxAllocBytes = OpenCLPlatform().devices(deviceIndex).maxMemAllocSize
+        val maxFieldSizeBytes = Int.MaxValue.toLong
+        val neededSlices = math.ceil(maxAllocBytes.toDouble / maxFieldSizeBytes).toInt
+        // Having many slices helps keep the DirectBuffer and Heap sizes low.
+        // We can't read the big field directly because the 2GB DirectBuffer size limit
+        // may be insufficient to represent the field.
+        val minSlices = 16
+        val numSlices = math.max(minSlices, neededSlices)
+        val BytesPerFloat = 4
+        val fieldElements = (maxAllocBytes / (numSlices * BytesPerFloat)).toInt
+        val bigAllocElements = fieldElements.toLong * numSlices
+        val bigAllocMBytes = math.round(bigAllocElements.toDouble * BytesPerFloat / 1024 / 1024).toInt
+
+        println(s"Allocating maximally large gpu buffer of size $bigAllocMBytes MB.")
+
+        val initField = RefScalarField.random(fieldElements)
+        val slice = TestScalarField(initField)
+
+        val inputs = Array.tabulate(numSlices){ i => slice + i }
+        val bigField = vectorField(inputs)
+        val outputs = Array.tabulate(numSlices){ (i) => bigField.vectorElement(i) }
+        probe(outputs: _*)
+      }
+      import cg._
+      withRelease {
+        step
+        System.out.print("Comparing expected large buffer state...")
+        for (i <- 0 until inputs.length)
+          require( initField + i ~== readScalar(outputs(i)) )
+        println("done.")
+      }
+    }
+
+    for (i <- 0 until numDevices)
+      testMaxAlloc(i)
+  }
+
+  /** Test that the shared latch allocator does not try to share OpenCL image and buffer memories.
+    */
+  test("combination of same-sized OpenCL image and buffer memories") {
+    val Size = 100
+    // If the allocator is blind to the differences between OpenCL Image memories and OpenCL buffer memories,
+    // it might try to use the same SharedLatch for 'color' as 'flipped' below.  In that case, an exception
+    // will be thrown.
+    val cg = new ComputeGraph {
+      val in = ScalarField(Size,Size)
+      val color = colorField(in, in, in)
+      val flipped = color.flip.red.flip
+
+      probe(flipped)
+    }
+    cg.withRelease {
+      cg.step
+    }
+  }
+
 }

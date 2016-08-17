@@ -18,7 +18,7 @@ package cogx.platform.opencl
 
 import com.jogamp.opencl.{CLCommandQueue, CLDevice, CLEvent, CLEventList}
 import cogx.cogmath.collection.{IdentityHashSet, SynchronizedIdentityHashSet}
-import cogx.platform.types.FieldType
+import cogx.platform.types.{FieldMemoryLayoutImpl, FieldType}
 import cogx.platform.cpumemory.{AbstractFieldMemory, BufferType}
 import cogx.parameters.Cog
 import com.jogamp.opencl.llb.CLDeviceBinding
@@ -42,7 +42,7 @@ class OpenCLDevice private[opencl](val clDevice: CLDevice,
                                    profile: Boolean)
 {
   /** Buffers for this device. */
-  private var fieldBuffers = new IdentityHashSet[OpenCLBuffer[_]]
+  private var fieldBuffers = new IdentityHashSet[OpenCLBuffer]
   /** Command queue used to hold all commands to the device. */
   val commandQueue = new OpenCLParallelCommandQueue(this, profile)
   /** Compiled program to run on this device. */
@@ -146,7 +146,7 @@ class OpenCLDevice private[opencl](val clDevice: CLDevice,
     math.min(clDevice.getMaxConstantBufferSize, MaxConstantBufferSizeExposed)
   }
 
-  /** The largest allocation of constant memory permitted. */
+  /** The largest global memory allocation of a single buffer permitted (in bytes). */
   def maxMemAllocSize: Long = {
     clDevice.getMaxMemAllocSize
   }
@@ -243,15 +243,28 @@ class OpenCLDevice private[opencl](val clDevice: CLDevice,
     * @param bufferType The type of buffer to be allocated.
     */
   def createFieldBuffer[T <: AbstractFieldMemory](fieldType: FieldType,
-                                                  bufferType: BufferType):
-     OpenCLBuffer[T] =
+                                                  bufferType: BufferType, gpuBufferCapacityBytes: Long): OpenCLBuffer =
   {
-    var buffer: OpenCLBuffer[T] = null
-    synchronized {
-      buffer = new OpenCLBuffer[T](fieldType, commandQueue, bufferType, platform.fieldMemoryAllocator)
-      fieldBuffers += buffer
+    def toMByte(sizeBytes: Long) = math.round(sizeBytes.toDouble/1024/1024)
+
+    if (gpuBufferCapacityBytes > maxMemAllocSize)
+      println(s"Warning: Field of type $fieldType has size ${toMByte(gpuBufferCapacityBytes)} MB, which exceeds the max size allocatable for device $this (${toMByte(maxMemAllocSize)} MB).  Expect badness.")
+    val buffer: OpenCLBuffer = synchronized {
+      val buf = new OpenCLBuffer(gpuBufferCapacityBytes, fieldType, commandQueue, bufferType, platform.fieldMemoryAllocator)
+      fieldBuffers += buf
+      buf
     }
     buffer
+  }
+
+  /** Create a field buffer for this device (living in GPU/CPU memory).
+    *
+    * @param fieldType The type of the scalar field held in the buffer.
+    * @param bufferType The type of buffer to be allocated.
+    */
+  def createFieldBuffer[T <: AbstractFieldMemory](fieldType: FieldType, bufferType: BufferType): OpenCLBuffer =
+  {
+    createFieldBuffer(fieldType, bufferType, new FieldMemoryLayoutImpl(fieldType).longBufferSizeBytes)
   }
 
   /** Destroy a previously created field `buffer`, releasing all OpenCL
@@ -259,7 +272,7 @@ class OpenCLDevice private[opencl](val clDevice: CLDevice,
     *
     * @param buffer The buffer to be released.
     */
-  private def destroyFieldBuffer(buffer: OpenCLBuffer[_]) {
+  private def destroyFieldBuffer(buffer: OpenCLBuffer) {
     require(fieldBuffers contains buffer)
     synchronized {
       buffer.release()
@@ -312,7 +325,7 @@ class OpenCLDevice private[opencl](val clDevice: CLDevice,
     if (Cog.verboseOpenCLDevices && fieldBuffers.size > 0)
       printf("  releasing %d field buffers\n", fieldBuffers.size)
     fieldBuffers.foreach(destroyFieldBuffer(_))
-    fieldBuffers = new IdentityHashSet[OpenCLBuffer[_]]
+    fieldBuffers = new IdentityHashSet[OpenCLBuffer]
 
     // kernels
     if (Cog.verboseOpenCLDevices && deviceKernels.size > 0)

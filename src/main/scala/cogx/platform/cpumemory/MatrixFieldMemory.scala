@@ -36,7 +36,7 @@ import cogx.cogmath.geometry.Shape
 final class MatrixFieldMemory private[cpumemory] (fieldType: FieldType,
                                             bufferType: BufferType,
                                             commandQueue: OpenCLParallelCommandQueue = null)
-        extends AbstractFieldMemory(fieldType, bufferType)
+        extends AbstractFieldMemory(fieldType, bufferType, commandQueue)
         with MatrixFieldReader
         with MatrixFieldWriter
 {
@@ -45,17 +45,6 @@ final class MatrixFieldMemory private[cpumemory] (fieldType: FieldType,
   if (bufferType == PinnedDirectBuffer)
     require(commandQueue != null)
 
-  /** Low level byte buffer for this field, required by base class. */
-  _byteBuffer = {
-    bufferType match {
-      case PinnedDirectBuffer =>
-        allocatePinnedDirectByteBuffer(bufferSizeBytes, commandQueue)
-      case DirectBuffer =>
-        allocateDirectByteBuffer(bufferSizeBytes)
-      case IndirectBuffer =>
-        allocateIndirectByteBuffer(bufferSizeBytes)
-    }
-  }
   /** Byte buffer cast to appropriate buffer type to handle endianness. */
   _directBuffer = _byteBuffer.asFloatBuffer
 
@@ -243,77 +232,4 @@ final class MatrixFieldMemory private[cpumemory] (fieldType: FieldType,
     throw new RuntimeException("not implemented yet")
   }
 
-}
-
-
-/** Factory for creating MatrixFieldMemories.
-  *
-  * THIS IS ONLY USED FOR TESTING. NOT EXPORTED TO USERS.
-  */
-object MatrixFieldMemory {
-
-  /** Create a stand-alone 0D MatrixFieldMemory for testing.
-    *
-    * @param matrix The single matrix in the field.
-    * @return Initialized matrix field memory.
-    */
-  def apply(matrix: Matrix): MatrixFieldMemory = {
-    val fieldType =
-      new FieldType(Shape(), matrix.shape, Float32)
-    val bufferType = IndirectBuffer
-    val memory = new MatrixFieldMemory(fieldType, bufferType)
-    memory.write(matrix)
-    memory
-  }
-
-  /** Create a stand-alone 1D MatrixFieldMemory for testing.
-    *
-    * @param columns Columns in field.
-    * @param f Function which supplies a value for every point in the field.
-    * @return Initialized matrix field memory.
-    */
-  def apply(columns: Int, f:(Int) => Matrix): MatrixFieldMemory = {
-    val fieldType =
-      new FieldType(Shape(columns), f(0).shape, Float32)
-    val bufferType = IndirectBuffer
-    val memory = new MatrixFieldMemory(fieldType, bufferType)
-    for (r <- 0 until columns)
-      memory.write(r, f(r))
-    memory
-  }
-
-  /** Create a stand-alone 2D MatrixFieldMemory for testing.
-    *
-    * @param rows Rows in field.
-    * @param columns Columns in field.
-    * @param f Function which supplies a value for every point in the field.
-    * @return Initialized matrix field memory.
-    */
-  def apply(rows: Int, columns: Int, f:(Int, Int) => Matrix): MatrixFieldMemory = {
-    val fieldType =
-      new FieldType(Shape(rows, columns), f(0, 0).shape, Float32)
-    val bufferType = IndirectBuffer
-    val memory = new MatrixFieldMemory(fieldType, bufferType)
-    for (r <- 0 until rows; c <- 0 until columns)
-      memory.write(r, c, f(r, c))
-    memory
-  }
-
-  /** Create a stand-alone 3D MatrixFieldMemory for testing.
-    *
-    * @param layers Layers in field.
-    * @param rows Rows in field.
-    * @param columns Columns in field.
-    * @param f Function which supplies a value for every point in the field.
-    * @return Initialized matrix field memory.
-    */
-  def apply(layers: Int, rows: Int, columns: Int, f:(Int, Int, Int) => Matrix): MatrixFieldMemory = {
-    val fieldType =
-      new FieldType(Shape(layers, rows, columns), f(0, 0, 0).shape, Float32)
-    val bufferType = IndirectBuffer
-    val memory = new MatrixFieldMemory(fieldType, bufferType)
-    for (l <- 0 until layers; r <- 0 until rows; c <- 0 until columns)
-      memory.write(l, r, c, f(l, r, c))
-    memory
-  }
 }

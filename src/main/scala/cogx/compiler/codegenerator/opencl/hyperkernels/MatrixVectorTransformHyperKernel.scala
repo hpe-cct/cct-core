@@ -17,7 +17,7 @@
 package cogx.compiler.codegenerator.opencl.hyperkernels
 
 import cogx.compiler.codegenerator.opencl.fragments._
-import cogx.platform.types.{FieldMemoryLayout, VirtualFieldRegister, Opcode, FieldType}
+import cogx.platform.types.{FieldMemoryLayoutImpl, VirtualFieldRegister, Opcode, FieldType}
 import cogx.compiler.parser.op.MatrixTransformVectorOp
 import cogx.cogmath.geometry.Shape
 import cogx.compiler.codegenerator.opencl.fragments.HyperKernel._
@@ -48,12 +48,12 @@ class MatrixVectorTransformHyperKernel private (in: Array[VirtualFieldRegister],
   val matrixType = in(0).fieldType
   val matrixShape = matrixType.tensorShape
   val matrixColumns = matrixShape(1)
-  val matrixFieldSizeBytes = 4 * matrixShape.points * new FieldMemoryLayout(matrixType).pageSize
+  val matrixFieldSizeBytes = 4 * matrixShape.points * new FieldMemoryLayoutImpl(matrixType).pageSize
 
   val vectorType = in(1).fieldType
   val vectorShape = vectorType.tensorShape
   val vectorLength = vectorShape(0)
-  val vectorFieldSizeBytes = 4 * vectorShape.points * new FieldMemoryLayout(vectorType).pageSize
+  val vectorFieldSizeBytes = 4 * vectorShape.points * new FieldMemoryLayoutImpl(vectorType).pageSize
 
   // Put a single matrix in constant memory if it fits
   if (is0DField(matrixType) && !is0DField(vectorType) && matrixFieldSizeBytes <= maxConstantBufferSize)

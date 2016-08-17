@@ -996,7 +996,7 @@ object HyperKernel {
 
     val tensorPoints = workFieldType.tensorShape.points
     var workGroupDimensions = fieldDimensions
-    val layout = new FieldMemoryLayout(workFieldType)
+    val layout = new FieldMemoryLayoutImpl(workFieldType)
     var columns = layout.columns
     var rows = layout.rows
     var layers = layout.layers

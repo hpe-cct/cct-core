@@ -166,31 +166,51 @@ import cogx.platform.types.ElementTypes._
   * then replacing "Float" references in the code to "T". This can't be done,
   * though, until the Vector and Matrix classes have been specialized.
   *
-  * @author Greg Snider
+  * The Shape class is part of Cog's public interface, so we don't want to change
+  * the fact that the underlying `sizes` array is an array of Ints.  That said,
+  * we'd like to start supporting Fields with footprints >= 2GB (a number not
+  * representable in a 32-bit unsigned Int).
+  *
+  * @author Greg Snider and Dick Carter
   */
+private[cogx] class FieldMemoryLayoutImpl(val fieldType: FieldType) extends FieldMemoryLayout
+
 private[cogx]
-class FieldMemoryLayout(val fieldType: FieldType)
+trait FieldMemoryLayout
     extends FieldLimits
     with FieldParameters
 {
+  /** The FieldType field to satisfy this trait's requirement. */
+  val fieldType: FieldType
+
   /** The type of scalar that populates the tensor. */
   val elementType = fieldType.elementType
 
+  /** The number of bytes to represent a pixel, e.g. 1 byte each for RGBA. */
   val PixelSize = 4
+
+  /** Number of "numbers" in each tensor in the field. Must be representable as an Int. */
+  lazy val numbersInTensor: Int = {
+    if (longNumbersInTensor > MaxDirectBufferSizeBytes)
+      throw new RuntimeException(s"Numbers in Tensor $longNumbersInTensor exceeds maximum of $MaxDirectBufferSizeBytes.")
+    else
+      longNumbersInTensor.toInt
+  }
+
   /** Number of "numbers" in each tensor in the field. */
-  val numbersInTensor = elementType match {
+  val longNumbersInTensor: Long = elementType match {
     case Float32 =>
       // One number for each element of the tensor.
-      tensorShape.points
+      tensorShape.longPoints
     case Complex32 =>
       // Each complex scalar has two numbers, real and imaginary.
-      tensorShape.points * 2
+      tensorShape.longPoints * 2
     case Uint8Pixel =>
       /** An image has 4 numbers: RGBA. */
-      PixelSize
+      PixelSize.toLong
     case x =>
       require(requirement = false, "element type not supported yet: " + elementType)
-      0
+      0L
   }
 
   /** Number of bytes in a single-precision floating point number. */
@@ -241,26 +261,70 @@ class FieldMemoryLayout(val fieldType: FieldType)
   /** Number of elements required to represent a single tensor element in a
     * field, including whatever padding is needed for I/O efficiency.
     */
-  val pageSize = layers * rows * paddedColumns
+  val longPageSize: Long = layers.toLong * rows * paddedColumns
+
+  /** Number of elements required to represent a single tensor element in a
+    * field, including whatever padding is needed for I/O efficiency.
+    * Must be representable as an Int.
+    */
+  lazy val pageSize: Int = {
+    if (longPageSize > MaxDirectBufferSizeBytes)
+      throw new RuntimeException(s"Field pageSize $longPageSize exceeds maximum of $MaxDirectBufferSizeBytes.")
+    else
+      longPageSize.toInt
+  }
+
 
   /** Size of the buffer needed to hold the entire field, in units of "numbers".
     * A "number" can vary among types, e.g. Byte, Float, ....
     */
-  private[cogx] val bufferSize = pageSize * numbersInTensor
+  private[cogx] val longBufferSize: Long = longPageSize * longNumbersInTensor
+
+  /** Size of the buffer needed to hold the entire field, in units of "numbers".
+    * A "number" can vary among types, e.g. Byte, Float, ....
+    * Must be representable as an Int.
+    */
+  private[cogx] lazy val bufferSize: Int = {
+    if (longBufferSize > MaxDirectBufferSizeBytes)
+      throw new RuntimeException(s"Field bufferSize in elements $longBufferSize exceeds maximum of $MaxDirectBufferSizeBytes.")
+    else
+      longBufferSize.toInt
+  }
+
+  /** Size of the buffer needed to hold the entire field, in units of bytes. */
+  private[cogx] val longBufferSizeBytes: Long = longPageSize * longNumbersInTensor * bytesPerNumber
 
   /** Size of the buffer needed to hold the entire field, in units of bytes.
+    * Must be representable as an Int.
     */
-  private[cogx] val bufferSizeBytes = pageSize * numbersInTensor * bytesPerNumber
+  private[cogx] lazy val bufferSizeBytes: Int = {
+    if (longBufferSizeBytes > MaxDirectBufferSizeBytes)
+      throw new RuntimeException(s"Buffer size of $longBufferSizeBytes exceeds maximimum of $MaxDirectBufferSizeBytes.")
+    else
+      longBufferSizeBytes.toInt
+  }
 
   /** Stride from beginning of one row to the next. */
-  val fieldRowStride = paddedColumns
+  val fieldRowStride: Int = paddedColumns
 
   /** Stride from beginning of one tensor element to the next. */
-  val tensorStride = pageSize
+  lazy val tensorStride: Int = pageSize
 
   /** Stride from beginning of one part of a multi-component tensor element
     * (e.g. a complex) to the next part. */
-  val partStride = pageSize * tensorShape.points
+  val longPartStride: Long = longPageSize * tensorShape.longPoints
+
+  /** Stride from beginning of one part of a multi-component tensor element
+    * (e.g. a complex) to the next part.
+    * Must be representable as an Int.
+    */
+  lazy val partStride: Int = {
+    if (longPartStride > MaxDirectBufferSizeBytes)
+      throw new RuntimeException(s"Address gen 'partStride' value of $longPartStride exceeds maximimum of $MaxDirectBufferSizeBytes.")
+    else
+      longPartStride.toInt
+  }
+
 }
 
 

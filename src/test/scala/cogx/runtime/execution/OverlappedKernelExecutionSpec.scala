@@ -60,23 +60,28 @@ class OverlappedKernelExecutionSpec
     val warmUpSteps2 = 1000
 
     def makeAndTimeGraph(overlappedQueues: Boolean, warmUpSteps: Int, testSteps: Int) = {
-      val cg = new ComputeGraph with RefTestInterface {
-        Cog.outOfOrderExecution = overlappedQueues
-        val inputA = ScalarField.random(16, 16)
-        val outputA = slow(inputA)
+      val savedFlag = Cog.outOfOrderExecution
+      try {
+        val cg = new ComputeGraph with RefTestInterface {
+          Cog.outOfOrderExecution = overlappedQueues
+          val inputA = ScalarField.random(16, 16)
+          val outputA = slow(inputA)
 
-        val inputB = ScalarField.random(16, 16)
-        val outputB = slow(inputB)
+          val inputB = ScalarField.random(16, 16)
+          val outputB = slow(inputB)
 
-        probe(outputA, inputA, outputB, inputB)
+          probe(outputA, inputA, outputB, inputB)
+        }
+        cg.reset
+        cg.step(warmUpSteps)
+        val start = System.nanoTime()
+        cg.step(testSteps)
+        val durationMsec = (System.nanoTime() - start) / 1000000.0f
+        cg.release
+        durationMsec
       }
-      cg.reset
-      cg.step(warmUpSteps)
-      val start = System.nanoTime()
-      cg.step(testSteps)
-      val durationMsec = (System.nanoTime() - start) / 1000000.0f
-      cg.release
-      durationMsec
+      finally
+        Cog.outOfOrderExecution = savedFlag
     }
     // Each test that "counts" comes on the heals of a previous test for consistency.
     // Long warm-up to try and get GPU clocks stable- very device-specific frankly.

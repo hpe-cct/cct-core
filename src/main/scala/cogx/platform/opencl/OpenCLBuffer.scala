@@ -16,8 +16,10 @@
 
 package cogx.platform.opencl
 
-import java.nio.FloatBuffer
+import java.lang.reflect.Constructor
+import java.nio.{Buffer, FloatBuffer}
 
+import cogx.platform.constraints.FieldLimits
 import com.jogamp.opencl._
 import cogx.platform.cpumemory._
 import com.jogamp.opencl.CLMemory.Mem
@@ -26,12 +28,21 @@ import cogx.platform.types.ElementTypes._
 import com.jogamp.opencl.CLImageFormat.{ChannelOrder, ChannelType}
 import cogx.platform.opencl.OpenCLEventCache._
 import com.jogamp.opencl.CLException.CLMemObjectAllocationFailureException
+import com.jogamp.opencl.llb.CL
 
 /** OpenCL buffers that hold fields. Each field consists of an optional
   * CPU (host) part and a GPU (device) part. See base class for a more
   * complete description.
   *
-  * @param fieldType Type of the field held in the buffer.
+  * These buffers are shared amongst VirtualFieldRegisters in a KernelCircuit, but a VFR
+  * driving a CPU kernel or one that is probed will prevent the shared buffer from being
+  * used further.  Thus, while there may be multiple different-sized uses of the GPU portion,
+  * the CPU memory need only look like one specific FieldType.  A future goal for this
+  * class is to tease away any notion of the FieldType.  This may not be totally feasible
+  * since "image" memories and "buffer" memories can not be shared even if they are the same size.
+  *
+  * @param gpuBufferCapacityBytes The maximum size field this buffer can hold in GPU memory.
+  * @param cpuUseFieldType Type of the field held in the buffer (as viewed from the CPU)
   * @param commandQueue OpenCL command queue available to this buffer.
   * @param requestedBufferType The type of buffer to attempt to allocate.
   * @param fieldMemoryAllocator The allocator to use for the cpu-side memory.
@@ -39,12 +50,13 @@ import com.jogamp.opencl.CLException.CLMemObjectAllocationFailureException
   * @author Greg Snider and Dick Carter
   */
 private[cogx]
-class OpenCLBuffer[T <: AbstractFieldMemory] private[opencl]
-  (val fieldType: FieldType,
+class OpenCLBuffer private[opencl]
+  (gpuBufferCapacityBytes: Long,
+   cpuUseFieldType: FieldType,
    commandQueue: OpenCLParallelCommandQueue,
    requestedBufferType: BufferType,
    fieldMemoryAllocator: FieldMemory)
-        extends AbstractFieldBuffer[T]
+        extends AbstractFieldBuffer with FieldLimits
 {
   /** Debug flag. */
   private val Verbose = false
@@ -67,21 +79,29 @@ class OpenCLBuffer[T <: AbstractFieldMemory] private[opencl]
   private val id = OpenCLBuffer.add()
 
   /** Memory on the CPU side, lazily instantiated. */
-  private var _cpuMemory = null.asInstanceOf[T]
+  private var _cpuMemory = null.asInstanceOf[AbstractFieldMemory]
 
   /** Actual cpu memory type: heap, non-heap pageable or non-heap pinned. */
   private var bufferType = requestedBufferType
 
   private def clContext = commandQueue.clContext
 
+  private val cpuAndGPUSizesMatch = {
+    val cpuSizeBytes = new FieldMemoryLayoutImpl(cpuUseFieldType).longBufferSizeBytes
+    if (cpuSizeBytes > gpuBufferCapacityBytes)
+      throw new RuntimeException("Internal error: not expecting cpu direct buffer size to be greater than gpu global mem size.")
+    else
+      cpuSizeBytes == gpuBufferCapacityBytes
+  }
+
   /** Memory on the CPU side, lazily instantiated. */
-  def cpuMemory: T = clMemoryLock.synchronized {
+  def cpuMemory: AbstractFieldMemory = clMemoryLock.synchronized {
     if (_cpuMemory == null) {
       _cpuMemory = requestedBufferType match {
         case PinnedDirectBuffer =>
           require(commandQueue != null, "need command queue for pinned buffer")
           try {
-            fieldMemoryAllocator.pinned(fieldType, commandQueue).asInstanceOf[T]
+            fieldMemoryAllocator.pinned(cpuUseFieldType, commandQueue)
           }
           catch {
             case e: CLMemObjectAllocationFailureException =>
@@ -91,12 +111,12 @@ class OpenCLBuffer[T <: AbstractFieldMemory] private[opencl]
               // pageable direct memory will only defer the gpu memory allocation until first use.
               println("Downgrading from pinned to pageable memory for buffer " + _deviceBuffer)
               bufferType = DirectBuffer
-              fieldMemoryAllocator.direct(fieldType).asInstanceOf[T]
+              fieldMemoryAllocator.direct(cpuUseFieldType)
           }
         case DirectBuffer =>
-          fieldMemoryAllocator.direct(fieldType).asInstanceOf[T]
+          fieldMemoryAllocator.direct(cpuUseFieldType)
         case IndirectBuffer =>
-          fieldMemoryAllocator.indirect(fieldType).asInstanceOf[T]
+          fieldMemoryAllocator.indirect(cpuUseFieldType)
       }
       /** Attach the NIO buffer to a clMemory if it already exists. */
       if (!isImage2dBuffer && _deviceBuffer != null)
@@ -114,23 +134,40 @@ class OpenCLBuffer[T <: AbstractFieldMemory] private[opencl]
       _deviceBuffer = if (isImage2dBuffer) {
         // UNORM_INT8 maps 0x00 -> 0xFF channel bytes to 0.0f -> 1.0f on the GPU
         val imageFormat = new CLImageFormat(ChannelOrder.RGBA, ChannelType.UNORM_INT8)
-        val width = fieldType.fieldShape(1)
-        val height = fieldType.fieldShape(0)
+        val width = cpuUseFieldType.fieldShape(1)
+        val height = cpuUseFieldType.fieldShape(0)
         clContext.createImage2d(cpuMemory.directBuffer, width, height, imageFormat,
           Mem.READ_WRITE)
-      } else if (_cpuMemory == null) {
-        /** If there's no _cpuMemory, we may never need one (this could be a buffer written
-          * and read by GPU kernels for a field that is never probed).  Rather than allocate
-          * an NIO buffer, just create the clMemory based on the size of the buffer with no
-          * CPU-side component.
-          */
-        val bufSizeBytes = (new FieldMemoryLayout(fieldType)).bufferSizeBytes
-        clContext.createBuffer(bufSizeBytes, Mem.READ_WRITE)
-      } else {
+      } else if (_cpuMemory == null && gpuBufferCapacityBytes <= Int.MaxValue.toLong) {
+        // If there's no _cpuMemory, we may never need one (this could be a buffer written
+        // and read by GPU kernels for a field that is never probed).  Rather than allocate
+        // an NIO buffer, just create the clMemory based on the size of the buffer with no
+        // CPU-side component.
+        //
+        // Since the buffer size can be represented by an unsigned int, we use the standard
+        // JOCL interface for buffer creation.
+        //
+        clContext.createBuffer(toIntBufferSizeBytes(gpuBufferCapacityBytes), Mem.READ_WRITE)
+      } else if (_cpuMemory == null && gpuBufferCapacityBytes > Int.MaxValue.toLong) {
+        // Since the buffer size *can't* be represented by an unsigned int, we use reflection
+        // to bypass the standard JOCL interface (implementation dependent, so probably fragile).
+        OpenCLBuffer.createLargeBuffer(clContext, gpuBufferCapacityBytes, Mem.READ_WRITE)
+      } else if (_cpuMemory != null && cpuAndGPUSizesMatch) {
         clContext.createBuffer(cpuMemory.directBuffer, Mem.READ_WRITE)
+      } else {
+        val gpuMemOnly = clContext.createBuffer(toIntBufferSizeBytes(gpuBufferCapacityBytes), Mem.READ_WRITE)
+        gpuMemOnly.cloneWith[FloatBuffer](_cpuMemory.directBuffer.asInstanceOf[FloatBuffer])
       }
     }
     _deviceBuffer
+  }
+
+  // Convert a bufferSize that's a Long to an unsigned Int, throwing an exception if this is not possible.
+  private def toIntBufferSizeBytes(bufferSizeBytes: Long) = {
+    if (bufferSizeBytes > MaxDirectBufferSizeBytes)
+      throw new RuntimeException(s"Buffer size $bufferSizeBytes bytes exceeds maximimum supported size of $MaxDirectBufferSizeBytes bytes.")
+    else
+      bufferSizeBytes.toInt
   }
 
   /** The size in bytes of the global memory footprint of this buffer. */
@@ -167,7 +204,7 @@ class OpenCLBuffer[T <: AbstractFieldMemory] private[opencl]
   */
 
   /** Read the field. Synchronized to avoid unnecessary duplication of reads */
-  def read: T = cpuMemoryValidLock.synchronized {
+  def read: AbstractFieldMemory = cpuMemoryValidLock.synchronized {
     if (!_cpuMemoryValid) {
       if (isImage2dBuffer)
         copyImage2dFromGPU()
@@ -211,15 +248,14 @@ class OpenCLBuffer[T <: AbstractFieldMemory] private[opencl]
     *
     * @return True if this is an image buffer, false for ordinary buffer.
     */
-  private def isImage2dBuffer =
-    fieldType.elementType == Uint8Pixel
+  private def isImage2dBuffer = cpuUseFieldType.isImage
 
   /** Internal test of buffer type.
     *
     * @return True if this is an image buffer, false for ordinary buffer.
     */
   private def isComplexBuffer =
-    fieldType.elementType == Complex32
+    cpuUseFieldType.elementType == Complex32
 
   /** Release OpenCL buffer resource (garbage collector gets direct buffer). */
   private[cogx] def release(): Unit = clMemoryLock.synchronized {
@@ -397,5 +433,91 @@ object OpenCLBuffer {
     bufferCount += 1
     bufferCount
   }
-}
 
+  /** Create a buffer that can have a size greater than Int.MaxValue, using reflection to get
+    * around the unfortunate use of Int's in the JOCL wrapping of the OpenCL interface.  The
+    * JOCL code that is side-stepped is the following:
+    *
+    * In CLContext.java:
+    *
+    *  // Constructor with unfortunate int size parameter
+    * public final CLBuffer<?> createBuffer(int size, int flags) {     <-- 'int' use is crux of the problem
+    *    CLBuffer<?> buffer = CLBuffer.create(this, size, flags);
+    *    memoryObjects.add(buffer);                                    <-- need reflection for this
+    *    return buffer;
+    * }
+    *
+    * In CLBuffer.java:
+    *
+    * // Constructor
+    * protected CLBuffer(CLContext context, long size, long id, int flags) {   <-- 'long' use is helpful.
+    *    this(context, null, size, id, flags);
+    * }
+    *
+    * // Method with unfortunate int size parameter
+    * static CLBuffer<?> create(CLContext context, int size, int flags) {
+    *
+    *     if(isHostPointerFlag(flags)) {
+    *         throw new IllegalArgumentException("no host pointer defined");
+    *     }
+    *
+    *     CL binding = context.getPlatform().getCLBinding();
+    *     int[] result = new int[1];
+    *     long id = binding.clCreateBuffer(context.ID, flags, size, null, result, 0);
+    *     checkForError(result[0], "can not create cl buffer");
+    *
+    *     return new CLBuffer(context, size, id, flags);              <-- need reflection for this
+    * }
+    *
+    * Most of the important work can be done from the public interfaces, up to and including
+    * the binding.clCreateBuffer call.  Reflection is needed to then access the CLBuffer constructor,
+    * and finally to register the buffer with the CLContext via memoryObjects.add().
+    *
+    * Note that the size argument in the binding.clCreateBuffer is cast to a long, if you can believe
+    * the IntelliJ IDEA bytecode disassembler.
+    *
+    * @param clContext The underlying JOCL context
+    * @param sizeBytes The size of the buffer to allocate, importantly as a Long.
+    * @param memFlags  READ_ONLY, WRITE_ONLY, READ_WRITE, etc. flags for the buffer creation.
+    * @return          The created JOCL CLBuffer
+    */
+  def createLargeBuffer(clContext: CLContext, sizeBytes: Long, memFlags: Mem*): CLBuffer[_] = {
+
+    val memFlagArray = memFlags.toArray
+    val flags: Int = Mem.flagsToInt(memFlagArray)
+
+    def isHostPointerFlag(flags: Array[Mem]) =
+      flags.contains(Mem.COPY_BUFFER) || flags.contains(Mem.USE_BUFFER)
+    if (isHostPointerFlag(memFlagArray))
+      throw new IllegalArgumentException("no host pointer defined")
+
+    val binding: CL = clContext.getCL()
+    val result: Array[Int] = new Array[Int](1)
+    val id: Long = binding.clCreateBuffer(clContext.ID, flags, sizeBytes, null.asInstanceOf[Buffer], result, 0)
+    CLException.checkForError(result(0), s"can not create cl buffer of size $sizeBytes")
+
+    try {
+      // Use reflection to invoke the CLBuffer(context, size, id, flags) constructor
+
+      val clBufferConstructor: Constructor[CLBuffer[FloatBuffer]] = classOf[CLBuffer[FloatBuffer]].getDeclaredConstructor(classOf[CLContext], classOf[Long], classOf[Long], classOf[Int])
+      clBufferConstructor.setAccessible(true)
+      // The Scala compiler wants an Object for each argument, so boxing was necessary.  Does it then automatically unbox?
+      val buffer = clBufferConstructor.newInstance(clContext, Long.box(sizeBytes), Long.box(id), Int.box(flags))
+
+      // Now use reflection to invoke clContext.memoryObjects.add(buffer) so the buffer will get released properly
+      // when the clContext is released
+
+      val memoryObjectsField = classOf[CLContext].getDeclaredField("memoryObjects")
+      memoryObjectsField.setAccessible(true)
+      val memoryObjects = memoryObjectsField.get(clContext).asInstanceOf[java.util.Set[CLMemory[_]]]
+      memoryObjects.add(buffer)
+
+      buffer
+
+    }
+    catch {
+      case e: Exception =>
+        throw new RuntimeException(s"Creation of $sizeBytes byte buffer via reflection fails: exception is $e.")
+    }
+  }
+}
