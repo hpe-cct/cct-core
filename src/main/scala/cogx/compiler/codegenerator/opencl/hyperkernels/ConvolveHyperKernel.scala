@@ -1028,26 +1028,53 @@ object ConvolveHyperKernel {
       val inputFeatures = inputs(0).fieldType.tensorShape.points / batchSize
       val resultPoints = resultType.fieldShape.points
       require(samplingPolicy.isInstanceOf[UpsampleInputConvolution] && operation.filterOrientation == CrossCorrelationOrientation)
-      // Shuffle planes of the "dY" input to group together same-feature planes rather than same-image planes.
-      val shuffled =
-        if (batchSize > 1)
-          FilterAdjointShuffleHyperKernel(Array(gradientField),FilterAdjointShuffleOp(batchSize),gradientFieldType).outputs(0)
-        else
-          gradientField
-      // Reshape the "dY" input to a 0D MatrixField as needed for the Matrix multiply
-      val dYreshaped = ReshapeHyperKernel(shuffled,ReshapeOp(Shape(),Shape(logicalFilters, gradientPoints * batchSize),false)).outputs(0)
-      val toeplitzResultType =
-        new FieldType(Shape(),Shape(gradientPoints * batchSize,inputFeatures*resultPoints), inputs(0).fieldType.elementType)
-      val toeplitzOp =
-        FilterAdjointToeplitzOp(borderPolicy, filterOrientation, samplingPolicy, batchSize, resultType.fieldShape)
-      val toeplitzMatrix = FilterAdjointToeplitzHyperKernel(inputs(0), toeplitzOp, toeplitzResultType).outputs(0)
-      val transformInputs = Array(dYreshaped,toeplitzMatrix)
-      val transformResultType =
-        new FieldType(Shape(),Shape(logicalFilters,inputFeatures*resultPoints), inputs(0).fieldType.elementType)
-      // Perform the filter adjoint operation as a matrix multiply that includes a reduction by the batchSize
-      val unShapedResult = MatrixMatrixTransformHyperKernel(transformInputs,
-        MatrixTransformMatrixOp(false, false), transformResultType, codeGenParams).outputs(0)
-      ReshapeHyperKernel(unShapedResult, ReshapeOp(resultType.fieldShape, resultType.tensorShape, false))
+      // Toeplitz matrix input can be quite large- do matrix multiply in pieces and sum the result
+      // Swag value 4 below based on AlexNet.
+      val chunksToMinimizeFootprint = 4
+      val toeplitzMatrixSize = toeplitzMatrixSizeBytes(inputs, operation, resultType.fieldShape).toInt
+      val chunksToEnsureSuccessfulAllocation = math.ceil(toeplitzMatrixSize.toDouble / codeGenParams.maxMemAllocSize).toInt
+      // chunks cannot be more than batchSize, then should ensure successful allocation, finally small footprint
+      val chunks = math.min(batchSize, math.max(chunksToMinimizeFootprint, chunksToEnsureSuccessfulAllocation))
+      val partialResults = Array.tabulate(chunks) { chunk => {
+        val fromImage = batchSize * chunk/ chunks
+        val untilImage = math.min(batchSize * (chunk+1) / chunks, batchSize)
+        val numImages = untilImage - fromImage
+        // Shuffle planes of the "dY" input to group together same-feature planes rather than same-image planes.
+        val shuffled =
+          if (batchSize > 1)
+            FilterAdjointShuffleHyperKernel(Array(gradientField),FilterAdjointShuffleOp(batchSize, fromImage, untilImage),
+              gradientFieldType.resizeTensor(Shape(numImages*logicalFilters))).outputs(0)
+          else
+            gradientField
+        // Reshape the "dY" input to a 0D MatrixField as needed for the Matrix multiply
+        val dYreshaped = ReshapeHyperKernel(shuffled,ReshapeOp(Shape(),Shape(logicalFilters, gradientPoints * numImages),false)).outputs(0)
+        val toeplitzResultType =
+          new FieldType(Shape(),Shape(gradientPoints * numImages, inputFeatures * resultPoints), inputs(0).fieldType.elementType)
+        val toeplitzOp =
+          FilterAdjointToeplitzOp(borderPolicy, filterOrientation, samplingPolicy, batchSize, fromImage, untilImage, resultType.fieldShape)
+        val toeplitzMatrix = FilterAdjointToeplitzHyperKernel(inputs(0), toeplitzOp, toeplitzResultType).outputs(0)
+        val transformInputs = Array(dYreshaped,toeplitzMatrix)
+        val transformResultType =
+          new FieldType(Shape(),Shape(logicalFilters,inputFeatures*resultPoints), inputs(0).fieldType.elementType)
+        // Perform the filter adjoint operation as a matrix multiply that includes a reduction by the batchSize
+        val unShapedResult = MatrixMatrixTransformHyperKernel(transformInputs,
+          MatrixTransformMatrixOp(false, false), transformResultType, codeGenParams).outputs(0)
+        ReshapeHyperKernel(unShapedResult, ReshapeOp(resultType.fieldShape, resultType.tensorShape, false))
+      }}
+
+      def sumPartialResults(fromIndex: Int, untilIndex: Int): HyperKernel = {
+        if (fromIndex + 1 > untilIndex)
+          throw new RuntimeException("Internal error: sumPartialResults reduction wierdness.")
+        else if (fromIndex + 1 == untilIndex)
+          partialResults(fromIndex)
+        else {
+          val midPoint = (fromIndex + untilIndex)/2
+          val firstOperand = sumPartialResults(fromIndex, midPoint).outputs(0)
+          val secondOperand = sumPartialResults(midPoint, untilIndex).outputs(0)
+          BinaryHyperKernel(Array(firstOperand, secondOperand), AddOp, resultType)
+        }
+      }
+      sumPartialResults(0, chunks)
     }
 
     borderPolicy match {
@@ -1119,42 +1146,49 @@ object ConvolveHyperKernel {
     // A flag that should be hand-set false during characterization of this approach
     val enablePruningBasedOnStride = true
 
-    // The toeplitzMatrix can get rather large for small upsample steps.  Make sure the buffer to
-    // hold the toeplitz matrix doesn't exceed the maximum allocation size.
-    def toeplitzMatrixCanBeAllocated = {
-      // We often call the 2nd field argument of a convolution the "filter", but in FilterAdjoint mode
-      // this can be confusing- the 2nd argument is the gradient field whose FieldType matches the output
-      // Fieldtype of the corresponding forward ProjectFrame operation.  The output field of the
-      // FilterAdjoint convolution is the back-propped gradient field whose FieldType matches the filter
-      // field of the ProjectFrame operation
-      val gradientFieldType = inputs(1).fieldType
-      val gradientPoints = gradientFieldType.fieldShape.points
-      val gradientTensorPoints = gradientFieldType.tensorShape.points
-      require(gradientTensorPoints % batchSize == 0,
-        s"Expecting gradient field vector depth $gradientTensorPoints to be a multiple of $batchSize.")
-      val logicalFilters = gradientFieldType.tensorShape.points / batchSize
-      val inputFeatures = inputs(0).fieldType.tensorShape.points / batchSize
-      // Before using the matrix-multiply approach, make sure the toeplitz matrix is not too big
-      val toeplitzResultType =
-        new FieldType(Shape(),Shape(gradientPoints * batchSize, inputFeatures*resultPoints), inputs(0).fieldType.elementType)
-      val toeplitzResultBytes = toeplitzResultType.fieldShape.points * toeplitzResultType.tensorShape.points * 4L
-      val notTooBig = toeplitzResultBytes <= codeGenParams.maxMemAllocSize
-      if (!notTooBig)
-        println("Warning: bypassing high-performing FilterAdjoint implementation due to insufficient global memory.")
-      notTooBig
-    }
     if (borderPolicy == BorderValid && (vectorMode == FilterAdjoint || vectorMode == FilterAdjointBlockReduceSum)) {
       samplingPolicy match {
         case UpsampleInputConvolution(step) =>
           filterOrientation == CrossCorrelationOrientation &&
-            (!enablePruningBasedOnStride || step > 2 || step == 2 && resultPoints > 5*5) &&  // Tuning swag based on TitanX and 1080
-          toeplitzMatrixCanBeAllocated                        // Make this term last due to method's possible warning msg
+            (!enablePruningBasedOnStride || step > 2 || step == 2 && resultPoints > 5*5)  // Tuning swag based on TitanX and 1080
         case NoSamplingConvolution => false
         case x: DownsampleOutputConvolution => false
       }
     }
     else
       false
+  }
+  /** The size of the Toeplitz matrix in bytes to perform convolution via matrix multiply.
+    *
+    * @param inputs The input field and the filter field driving this kernel.
+    * @param operation The binary opcode for this operation.
+    * @param resultFieldShape The FieldShape of the result of this kernel.
+    * @return The size of the Toeplitz matrix in bytes.
+    *
+    */
+  def toeplitzMatrixSizeBytes(inputs: Array[VirtualFieldRegister], operation: AbstractConvolveOp,
+                              resultFieldShape: Shape): Long = {
+
+    import operation._
+
+    val resultPoints = resultFieldShape.longPoints
+
+    // We often call the 2nd field argument of a convolution the "filter", but in FilterAdjoint mode
+    // this can be confusing- the 2nd argument is the gradient field whose FieldType matches the output
+    // Fieldtype of the corresponding forward ProjectFrame operation.  The output field of the
+    // FilterAdjoint convolution is the back-propped gradient field whose FieldType matches the filter
+    // field of the ProjectFrame operation
+    val gradientFieldType = inputs(1).fieldType
+    val gradientPoints = gradientFieldType.fieldShape.points
+    val gradientTensorPoints = gradientFieldType.tensorShape.points
+    require(gradientTensorPoints % batchSize == 0,
+      s"Expecting gradient field vector depth $gradientTensorPoints to be a multiple of $batchSize.")
+    val inputFeatures = inputs(0).fieldType.tensorShape.points / batchSize
+    // Before using the matrix-multiply approach, make sure the toeplitz matrix is not too big
+    val toeplitzMatrixRows = gradientPoints * batchSize
+    val toeplitzMatrixColumns = inputFeatures * resultPoints
+    val toeplitzResultBytes = toeplitzMatrixRows * toeplitzMatrixColumns * 4
+    toeplitzResultBytes
   }
 
   /** Certain vectorModes, like ProjectFrameBlockReduceSum, process a number of output planes per workgroup.  This

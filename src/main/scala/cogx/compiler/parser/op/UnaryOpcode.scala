@@ -58,7 +58,7 @@ private[cogx] case object ExpOp extends UnaryOpcode
 private[cogx] case object FilterNaNOp extends UnaryOpcode
 private[cogx] case object FloorOp extends UnaryOpcode
 private[cogx] case object FlipOp extends UnaryOpcode
-private[cogx] case class  FilterAdjointShuffleOp(batchSize: Int) extends UnaryOpcode
+private[cogx] case class  FilterAdjointShuffleOp(batchSize: Int, fromImage: Int, untilImage: Int) extends UnaryOpcode
 private[cogx] case object ForwardGradientOp extends UnaryOpcode
 private[cogx] case object LogOp extends UnaryOpcode
 private[cogx] case object MatrixInvertOp extends UnaryOpcode
@@ -304,5 +304,7 @@ private[cogx] case class FilterAdjointToeplitzOp(borderPolicy:BorderPolicy,
                                     filterOrientation: FilterOrientation,
                                     samplingPolicy: ConvolutionSamplingPolicy,
                                     batchSize: Int,
+                                    fromImage: Int,
+                                    untilImage: Int,
                                     filterShape: Shape)
   extends UnaryOpcode(filterOrientation.toString + borderPolicy.toString)

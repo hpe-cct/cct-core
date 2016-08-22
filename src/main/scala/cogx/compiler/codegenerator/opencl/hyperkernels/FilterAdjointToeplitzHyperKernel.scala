@@ -177,25 +177,24 @@ class FilterAdjointToeplitzHyperKernel private (in: VirtualFieldRegister,
   // filterPoints = F^2
   // gradientRows * gradientCols = N^2 / S^2
 
+  import operation._
   val inType = in.fieldType
   require(inType.dimensions == 2, s"Expecting 2D input field, found $inType")
-  val batchSize = operation.batchSize
   val inputRows = inType.rows
   val inputColumns = inType.columns
   val inputFeatures = inType.tensorShape.points / batchSize
 
-  require(operation.borderPolicy == BorderValid, s"kernel $this only supports BorderValid convolution.")
-  require(operation.filterOrientation == CrossCorrelationOrientation,
+  require(borderPolicy == BorderValid, s"kernel $this only supports BorderValid convolution.")
+  require(filterOrientation == CrossCorrelationOrientation,
     s"kernel $this only supports CrossCorrelationOrientation filterOrientation.")
-  require(operation.filterShape.dimensions == 2, s"kernel $this only supports 2D filters.")
-  val filterRows = operation.filterShape(0)
-  val filterColumns = operation.filterShape(1)
+  require(filterShape.dimensions == 2, s"kernel $this only supports 2D filters.")
+  val (filterRows, filterColumns) = (filterShape(0), filterShape(1))
   val filterPoints = filterRows * filterColumns
   require(resultType.tensorColumns % filterPoints == 0, s"Internal error: unexpected size of result type $resultType.")
   require(resultType.tensorColumns / filterPoints == inputFeatures,
     s"Internal error: unexpected size of result type $resultType.")
 
-  val stride = operation.samplingPolicy match {
+  val stride = samplingPolicy match {
     case NoSamplingConvolution => 1
     case UpsampleInputConvolution(stride) => stride
     case x: DownsampleOutputConvolution => throw new RuntimeException(s"Unexpected sampling policy $x")
@@ -210,6 +209,9 @@ class FilterAdjointToeplitzHyperKernel private (in: VirtualFieldRegister,
   val gradientColumns = (inputColumns - filterColumns + 1) / stride
   val gradientPoints = gradientRows * gradientColumns
 
+  val numImages = untilImage - fromImage
+  val expectedResultRows = numImages * gradientPoints
+  require(resultType.tensorRows == expectedResultRows, s"Expecting $expectedResultRows result field tensor rows, found ${resultType.tensorRows}.")
   // 0D fields are run by default by 1D kernels with 256-long 1D local work groups.
   // We want this kernel to run more like a 2D kernel, so we set the fictional
   // workfieldtype to be a ScalarField whose fieldshape is the kernel's result tensorshape.
@@ -226,7 +228,7 @@ class FilterAdjointToeplitzHyperKernel private (in: VirtualFieldRegister,
     s"""| int filterElementIndex = _column % $filterPoints;
         | int filterRow = filterElementIndex / $filterColumns;
         | int filterColumn = filterElementIndex % $filterColumns;
-        | int imageBatchIndex = _row / $gradientPoints;
+        | int imageBatchIndex = $fromImage + _row / $gradientPoints;
         | int gradientOffset = _row % $gradientPoints;
         | int gradientRow = gradientOffset / $gradientColumns;
         | int gradientColumn = gradientOffset % $gradientColumns;

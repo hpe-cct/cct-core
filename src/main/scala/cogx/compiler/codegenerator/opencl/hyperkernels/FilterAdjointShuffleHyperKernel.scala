@@ -16,11 +16,11 @@
 
 package cogx.compiler.codegenerator.opencl.hyperkernels
 
-import cogx.compiler.codegenerator.opencl.fragments.{AddressingMode, HyperKernel, SmallTensorAddressing, TensorElementAddressing}
+import cogx.cogmath.geometry.Shape
+import cogx.compiler.codegenerator.opencl.fragments.{AddressingMode, HyperKernel, TensorElementAddressing}
 import cogx.compiler.codegenerator.opencl.fragments.HyperKernel._
 import cogx.platform.types._
-import cogx.compiler.codegenerator.common.FieldPolicies._
-import cogx.compiler.parser.op.{FilterAdjointShuffleOp, FlipOp}
+import cogx.compiler.parser.op.FilterAdjointShuffleOp
 
 /** Hyperkernel that reorders the planes of a vector field that is holding a batch
   * of multi-feature-plane images.  The input is assumed to have planes associated
@@ -49,15 +49,16 @@ class FilterAdjointShuffleHyperKernel private (in: Array[VirtualFieldRegister],
                                         resultType: FieldType,
                                         addressMode: AddressingMode)
         extends HyperKernel(operation, in, resultType, addressMode) {
+  import operation._
   val inType = in(0).fieldType
-  val batchSize = operation.batchSize
   require(inType.tensorColumns % batchSize == 0,
     s"Internal error: Expecting VectorField tensor depth to be a multiple of $batchSize, found fieldType $inType.")
   val featuresPerImage = inType.tensorShape.points / batchSize
+  val numimages = untilImage - fromImage
 
   val code =
-    s"""|        int featureIndex = _tensorElement / $batchSize;
-        |        int imageIndex = _tensorElement % $batchSize;
+    s"""|        int featureIndex = _tensorElement / $numimages;
+        |        int imageIndex = $fromImage + _tensorElement % $numimages;
         |        tensorElement = imageIndex * $featuresPerImage + featureIndex;
         |${setLayerRowColumn(resultType, "_layer", "_row", "_column")}
         |        @out0 = readElementNonlocal(@in0);
@@ -81,13 +82,16 @@ object FilterAdjointShuffleHyperKernel {
   def apply(in: Array[VirtualFieldRegister], operation: FilterAdjointShuffleOp, resultType: FieldType):
   HyperKernel =
   {
-    require(in.length == 1)
+    import operation._
+    require(in.length == 1, s"Expecting a single input, found ${in.length}.")
     val inType = in(0).fieldType
-    require(inType == resultType, s"Internal error: Expecting $inType == $resultType.")
-    require(inType.tensorOrder == 1, s"Internal error: Expecting VectorField input, found $inType.")
-    val batchSize = operation.batchSize
+    val numImages = untilImage - fromImage
     require(inType.tensorColumns % batchSize == 0,
       s"Internal error: Expecting VectorField tensor depth to be a multiple of $batchSize, found fieldType $inType.")
+    val featuresPerImage = inType.tensorShape.points / batchSize
+    val expectedResultType = inType.resizeTensor(Shape(featuresPerImage * numImages))
+    require(expectedResultType == resultType, s"Internal error: Expecting $expectedResultType == $resultType.")
+    require(inType.tensorOrder == 1, s"Internal error: Expecting VectorField input, found $inType.")
 
     new FilterAdjointShuffleHyperKernel(in, operation, resultType, TensorElementAddressing)
   }

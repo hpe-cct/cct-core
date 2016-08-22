@@ -32,6 +32,16 @@ import org.junit.runner.RunWith
   * Test model has two compute-intensive operations that each consume a single workgroup
   * that could run in parallel.
   *
+  * This test explores whether the out-of-order execution flag of a command queue has any effect.  I've
+  * since confirmed that the way to get multiple kernels running on NVIDIA hardware is to use multiple command
+  * queues.  The extent of concurrent kernel execution needs to be characterized.  Can multiple kernels run on
+  * the same SM?  Can two high-workgroup-count kernels at least share the GPU during the tail end of kernel1's
+  * execution?
+  *
+  * Some early experimentation shows that for the `numWorkGroups` parameter below < Num_SMs, the speed-up for
+  * two queues is nearly double.  With numWorkGroups = 144 on a TitanX (with 24 SM's), there was actually a
+  * slowdown in going to two queues!
+  *
   * @author Dick Carter
   */
 
@@ -61,13 +71,14 @@ class OverlappedKernelExecutionSpec
 
     def makeAndTimeGraph(overlappedQueues: Boolean, warmUpSteps: Int, testSteps: Int) = {
       val savedFlag = Cog.outOfOrderExecution
+      val numWorkGroups = 1
       try {
         val cg = new ComputeGraph with RefTestInterface {
           Cog.outOfOrderExecution = overlappedQueues
-          val inputA = ScalarField.random(16, 16)
+          val inputA = ScalarField.random(16, 16 * numWorkGroups)
           val outputA = slow(inputA)
 
-          val inputB = ScalarField.random(16, 16)
+          val inputB = ScalarField.random(16, 16 * numWorkGroups)
           val outputB = slow(inputB)
 
           probe(outputA, inputA, outputB, inputB)
