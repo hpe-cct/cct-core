@@ -21,16 +21,21 @@ import cogx.platform.types.{FieldType, Opcode}
 
 /** A node in the syntax tree.
   *
-  * @param opcode The opcode for the operation.
   * @param _inputs The input Fields to the operation.
   * @param fieldTypes The FieldTypes of the outputs of the operation.
   *
   * @author Dick Carter
   */
 private[cogx]
-class Operation(val opcode: Opcode, _inputs: Array[Field], fieldTypes: Array[FieldType])
+class Operation(private[this] var  _opcode: Opcode, _inputs: Array[Field], fieldTypes: Array[FieldType])
         extends Hypernode[Operation](_inputs.asInstanceOf[Array[Hyperedge[Operation]]])
 {
+  /** The opcode for the operation. */
+  def opcode: Opcode = _opcode
+
+  /** Remove reference to the possible large Opcode instance (constant opcode functions may have data references). */
+  def releaseResources() { _opcode = null.asInstanceOf[Opcode] }
+
   /** The inputs to this kernel, as Fields, not as the base class
     * Hyperedge[Operation]
     */

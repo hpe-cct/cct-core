@@ -128,7 +128,7 @@ abstract class Field private[cogx] (val operation: Operation,
         with CogOperatorAPI
 {
   /** The opcode of the operation that produces this field */
-  val opcode = operation.opcode
+  def opcode = operation.opcode
 
   /** The input fields that drive the operation that produces this field */
   def inputs = operation.inputs
@@ -2121,6 +2121,7 @@ abstract class Field private[cogx] (val operation: Operation,
   /** Remove reference to the virtual field register backing up this field. */
   private[cogx] def release() {
     initialVirtualFieldRegister = null
+    operation.releaseResources()
   }
 
   /** Print out, if possible, GPU code that generates this field. */

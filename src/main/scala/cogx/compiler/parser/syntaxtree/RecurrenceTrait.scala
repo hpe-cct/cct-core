@@ -34,7 +34,7 @@ trait RecurrenceTrait
         with CompilerError
 {
   /** Operation performed by this node. */
-  val opcode: Opcode
+  def opcode: Opcode
 
   /** Type of the result produced by this node. */
   val fieldType: FieldType

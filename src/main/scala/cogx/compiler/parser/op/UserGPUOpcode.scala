@@ -43,9 +43,12 @@ object UserGPUOpcode {
 
   /** Create a unique UserGPUOpcode for each unique user GPU operator.
     *
+    * Multiple ComputeGraphs should be able to share the opcode cache, even if the
+    * opcodes are being simultaneously created by multiple threads (note `synchronized` below).
+    *
     * @param gpuOperator The GPUOperator to create the unique UserGPUOpcode for.
     * */
-  def apply(gpuOperator: GPUOperator): UserGPUOpcode = {
+  def apply(gpuOperator: GPUOperator): UserGPUOpcode = synchronized {
     opcodeCache.getOrElseUpdate(gpuOperator, {
       // Lookup failed: make a new UserGPUOpcode incorporating user-supplied name if not ""
       opcodes += 1
