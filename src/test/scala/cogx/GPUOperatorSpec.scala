@@ -1109,7 +1109,7 @@ class GPUOperatorSpec
       test(vectorSize)
   }
 
-    /** Test that common subexpression elimination distinguishes between two outputs of the same kernel */
+  /** Test that common subexpression elimination distinguishes between two outputs of the same kernel */
   test("simple dual-output GPUoperator- test of CSE") {
     val cg = new ComputeGraph{
       val a = ScalarField()
@@ -1132,6 +1132,39 @@ class GPUOperatorSpec
       step
       require(read(c).asInstanceOf[ScalarFieldReader].read() == 3f)
     }
+  }
+
+  /** Test that a device kernel can have no inputs. */
+  test("no-input GPUoperator") {
+    def makeConstantField(rows: Int, columns: Int, tensorElements: Int) = {
+      val outputType = new FieldType(Shape(rows, columns), Shape(tensorElements), Float32)
+      val out = GPUOperator(outputType, "constantFieldGenerator") {
+        _globalThreads(outputType.fieldShape, outputType.tensorShape)
+        val outVal = _row * columns * tensorElements +
+                     _column * tensorElements +
+                     _tensorElement
+        _writeTensorElement(_out0, outVal, _tensorElement)
+      }
+      out
+    }
+
+    def doTest(rows: Int, columns: Int, tensorElements: Int): Unit = {
+      val cg = new ComputeGraph{
+        val a = makeConstantField(rows, columns, tensorElements)
+        probe(a)
+      }
+      cg.withRelease {
+        cg.step
+        val v = new Vector(tensorElements)
+        val rdr = cg.read(cg.a).asInstanceOf[VectorFieldReader]
+        for (row <- 0 until rows; column <- 0 until columns) {
+          rdr.read(row, column, v)
+          require(v == Vector(tensorElements, (i: Int) => (row * columns + column) * tensorElements + i.toFloat))
+        }
+      }
+    }
+
+    doTest(10, 12, 5)
   }
 
   /** Test dual-output operators on a toy complex-field class */

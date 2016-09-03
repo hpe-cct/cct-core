@@ -89,7 +89,11 @@ abstract class OpenCLDeviceKernel(opcode: Opcode,
       clKernel.putArg(register.master.deviceBuffer)
 
     // Create the event list that the kernel must wait on before executing
-    val waitFor = new CLEventList(CLEventFactory, inputTriggers: _*)
+    val waitFor =
+      if (inputTriggers.size > 0)
+        new CLEventList(CLEventFactory, inputTriggers: _*)
+      else
+        null.asInstanceOf[CLEventList]
 
     // Start the kernel executing.
     launchKernel(clKernel, workGroup, waitFor, outputTrigger)
