@@ -1121,7 +1121,24 @@ object ConvolveHyperKernel {
             require(canUseFilterAdjointBlockReduceSum(inputs, operation, resultType.fieldShape, codeGenParams),
               s"Internal error: filterAdjoint via matrix multiply not possible to generate $resultType")
             crossCorrelateViaMatrixMultiply
-          case _ => stdConvolve
+          case _ =>
+            // Certain convolutions with big filters may not be possible with the stdConvolve kernel if their
+            // minimum local memory needs exceed the amount of local memory of the GPU.  The
+            // ConvolveToSmallField* kernels may help here, but they apply upsampling to the second input, not
+            // the first as needed here.  So, if there is no upsampling/downsampling and the std convolve is
+            // having trouble, try the ConvolveToSmallField* kernels.
+            try {
+              stdConvolve
+            }
+            catch {
+              case e: RuntimeException =>
+                if (samplingPolicy == NoSamplingConvolution && ConvolveToSmallFieldPipelinedTiledHyperKernel.isRecommended(inputs))
+                  ConvolveToSmallFieldPipelinedTiledHyperKernel(inputs, operation, resultType, codeGenParams)
+                else if (samplingPolicy == NoSamplingConvolution)
+                  ConvolveToSmallFieldPipelinedHyperKernel(inputs, operation, resultType, codeGenParams)
+                else
+                  throw e
+            }
         }
       case _ => stdConvolve
     }

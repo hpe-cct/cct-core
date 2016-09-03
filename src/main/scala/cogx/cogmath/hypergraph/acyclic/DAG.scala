@@ -20,9 +20,7 @@ import cogx.cogmath.collection.IdentityHashSet
 
 import scala.collection.mutable.ArrayBuffer
 
-/** A
-
-irected, acyclic graph, with one or more roots.
+/** A directed, acyclic graph, with one or more roots.
   *
   * @param _roots The roots of the DAG.
   *
