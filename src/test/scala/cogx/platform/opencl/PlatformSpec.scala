@@ -93,10 +93,14 @@ class PlatformSpec extends FunSuite with MustMatchers {
   class DeviceDoubler(in: AbstractKernel, field: FieldType)
           extends OpenCLDeviceKernel(DummyOp, Array(in.outputs(0)), Array(field))
   {
-    val workGroup = new WorkGroupParameters(1) {
-      globalColumns = field.fieldShape.points
+    val workGroup = new WorkGroupParameters(1,
+      globalLayers = 1,
+      globalRows = 1,
+      globalColumns = field.fieldShape.points,
+      localLayers = 1,
+      localRows = 1,
       localColumns = 1
-    }
+    )
     val kernelCode: String =
       "__kernel void " +
               "dbl(global const float *a, " +

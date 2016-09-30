@@ -32,11 +32,12 @@ import cogx.runtime.resources.GPU
   *
   * @param device OpenCL GPU managed by this supervisor.
   * @param gpu An object that allows late binding of the orderedKernels sequence (for multinode)
+  * @param profileSize How often to print out profiling statistics (0 == never)
   *
   * @author Greg Snider
   */
 private[runtime]
-class GPUSupervisor(device: OpenCLDevice, gpu: GPU)
+class GPUSupervisor(device: OpenCLDevice, gpu: GPU, profileSize: Int)
 {
   // Bring `circuit` and `orderedKernels` into scope. */
   import gpu._
@@ -85,7 +86,6 @@ class GPUSupervisor(device: OpenCLDevice, gpu: GPU)
     for (kernel <- orderedKernels)
       installKernel(kernel)
 
-
     // Instantiate the kernels.
     for (kernel <- orderedKernels) {
       kernel match {
@@ -117,12 +117,14 @@ class GPUSupervisor(device: OpenCLDevice, gpu: GPU)
     // result of being reset.
     evaluate()
 
-    if (Cog.profile)
+    // Are we profiling this execution? If so, then reset the stats upon KernelCircuit reset (erases first evaluate)
+    if (device.commandQueue.profile)
       for (kernel <- orderedKernels)
         kernel.stats.reset()
   }
 
   /** Advance the computation by one step. */
+//  def evaluate(): Unit = device.lock.synchronized {
   def evaluate() {
 
     // Clock output registers, mark masters invalid since we're about to
@@ -203,17 +205,23 @@ class GPUSupervisor(device: OpenCLDevice, gpu: GPU)
       kernel.phase2Clock()
 
     // Print out kernel statistics every 'ProfileSize' cycles
-    if (Cog.profile && orderedKernels.size > 0) {
+
+    // CommandQueues for this device should already have profiling enabled.
+
+    // When the Profiler uses this class, the CommandQueues will have profiling enabled, but
+    // with profileSize == 0 to disable any output from the code below:
+
+    if (profileSize > 0 && orderedKernels.size > 0) {
       val kernelsWithSamples =
         orderedKernels.filter(kernel => kernel.stats.totalSamples > 0 &&
-                kernel.stats.totalSamples % Cog.profileSize == 0)
+                kernel.stats.totalSamples % profileSize == 0)
       val slowToFastKernels =
         kernelsWithSamples.sortWith(_.stats.avg > _.stats.avg)
       val slowToFastDeviceKernels = slowToFastKernels.filter(_.isInstanceOf[OpenCLDeviceKernel])
       val slowToFastCpuKernels = slowToFastKernels.filter(_.isInstanceOf[OpenCLCpuKernel])
       if (slowToFastKernels.size > 0) {
         println("************ kernel execution times (taken over " +
-                Cog.profileSize + " steps) ************")
+                profileSize + " steps) ************")
         println()
         val numDeviceKernels = slowToFastDeviceKernels.size
         if (numDeviceKernels > 0) {

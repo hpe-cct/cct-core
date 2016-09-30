@@ -38,6 +38,10 @@ trait ObjectRestorer {
   def readFloat(name: String): Float
   /** Read a Float array from the object store with the key `name`. */
   def readFloatArray(name: String): Array[Float]
+  /** Read a Double from the object store with the key `name`. */
+  def readDouble(name: String): Double
+  /** Read a Double array from the object store with the key `name`. */
+  def readDoubleArray(name: String): Array[Double]
   /** Read a String from the object store with the key `name`. */
   def readString(name: String): String
   /** Attempt to read an optional String from the object store with key

@@ -31,7 +31,7 @@ import cogx.runtime.debugger.{ProbedCircuit, ProbedField, UserFieldNames}
 import java.util.concurrent.Semaphore
 
 import cogx.platform.types._
-import cogx.runtime.execution.{CircuitEvaluator, CogActorSystem}
+import cogx.runtime.execution.{CircuitEvaluator, CogActorSystem, Profiler}
 import java.lang.reflect.{InvocationTargetException, UndeclaredThrowableException}
 
 import cogx.platform.cpumemory.readerwriter.FieldReader
@@ -46,13 +46,16 @@ import scala.collection.mutable.ArrayBuffer
   * @param optimize When false, turns off the optimizer, allowing the graph to
   *              be more easily debugged, since all fields declared by the
   *              user remain visible.
-  *
+  * @param device The index of the device to run the ComputeGraph on
+  * @param forceProfiling Should profiling be forced, thereby bypassing and refreshing the Profiler's cache.
   * @param fftUse policy for FFT use in fast convolution.
+  * @param convolveSmallTensorUse policy for when to use "small tensor addressing" in kernel generation.
   *
-  * @author Greg Snider
+  * @author Greg Snider and Dick Carter
   */
 class ComputeGraph(val optimize: Boolean = true,
                    device: Option[Int] = None,
+                   forceProfiling: Boolean = Cog.forceProfiling,
                    fftUse: ConvolutionFFTUsePolicy = UseFFTWhenBest,
                    convolveSmallTensorUse: ConvolutionSmallTensorUsePolicy = UseSmallTensorWhenBest)
   extends Saveable
@@ -103,6 +106,9 @@ class ComputeGraph(val optimize: Boolean = true,
   /** Selects the OpenCLPlatform to use and creates a unique context for this ComputeGraph. */
   private lazy val platform = OpenCLPlatform()
 
+  /** Selects the OpenCLPlatform to use for profiling and creates a unique context for this ComputeGraph. */
+  private lazy val profilerPlatform = new OpenCLPlatform(profilerUse = true)
+
   /** The specific device(s) that will evaluate the ComputeGraph, now bound at ComputeGraph creation time. */
   val mode: AllocationMode = device match {
     case Some(deviceIndex) => AllocationMode.SingleGPU(deviceIndex)
@@ -115,7 +121,9 @@ class ComputeGraph(val optimize: Boolean = true,
     // exception, we do not want to create the circuit evaluator.
     circuit
 
-    var typedProps = TypedProps(classOf[EvaluatorInterface], new CircuitEvaluator(circuit, platform, mode))
+    val profileSize = if (Cog.profile) Cog.profileSize else 0
+
+    var typedProps = TypedProps(classOf[EvaluatorInterface], new CircuitEvaluator(circuit, platform, mode, profileSize))
 
     // If we're not sharing threads, then add our Cog-custom dispatcher
     if (!Cog.threadSharing)
@@ -154,7 +162,8 @@ class ComputeGraph(val optimize: Boolean = true,
   lazy val codeGenerator = {
     if (Verbose)
       println("ComputeGraph: creating code generator")
-    new OpenCLCodeGenerator(kernelCodeGenParams, fftUse, convolveSmallTensorUse)
+    val profiler = new Profiler(profilerPlatform, mode, actorSystem, forceProfiling)
+    new OpenCLCodeGenerator(kernelCodeGenParams, fftUse, convolveSmallTensorUse, profiler)
   }
 
   /** Compile a syntax tree to a circuit that can be executed by an evaluator.
@@ -460,6 +469,7 @@ class ComputeGraph(val optimize: Boolean = true,
       // to reclaim, so we do a direct buffer "cleaning" here. A hack, but
       // widely done.
       platform.release()
+      profilerPlatform.release()
       System.gc
     }
   }

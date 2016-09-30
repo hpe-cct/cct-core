@@ -24,9 +24,10 @@ import org.scalatest.junit.JUnitRunner
 import org.junit.runner.RunWith
 import org.scalatest.MustMatchers
 import org.scalatest.FunSuite
-
 import java.io.File
+
 import cogx.api.ImplicitConversions
+import cogx.runtime.checkpoint.hdf5.Hdf5Common
 import ncsa.hdf.hdf5lib.H5._
 import ncsa.hdf.hdf5lib.HDF5Constants._
 
@@ -42,9 +43,8 @@ class Hdf5Spec
         with ImplicitConversions
         with CheckpointTester
 {
-//  lazy val checkpointer = Hdf5Checkpointer
-
   test("native library loading") {
+    // This will emit certain INFO and DEBUG messages that are silenced when invoked by the user.
     Hdf5NativesLoader.load()
 
     val filename = "testFile"

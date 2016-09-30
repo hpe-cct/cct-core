@@ -25,7 +25,7 @@ import collection.mutable.HashMap
   * Date: 11/16/12
   */
 
-private [cogx] class MD5(textBody: String) {
+private [cogx] class MD5 private[MD5] (textBody: String) {
   def digest: String = {
     val digester = MessageDigest.getInstance("MD5")
     digester.update(textBody.getBytes())
@@ -44,6 +44,7 @@ private [cogx] object MD5 {
     * @return Unique ID for string--will return the same ID for multiple calls
     *        with the same string.
     */
-  def apply(string: String) =
+  def apply(string: String): String = synchronized {
     digestCache.getOrElseUpdate(string, new MD5(string).digest)
+  }
 }

@@ -93,6 +93,21 @@ object Cog {
   var maxLayoutProbedFields = setInt("maxLayoutProbedFields", 100)
   /** Kernel CommandQueue flush frequency (users should generally leave this alone). */
   var kernelFlushFrequency = setInt("kernelFlushFrequency", 100)
+  // One can use -Xcheck:jni to diagnose the need for libjsig.so.
+  /** Check that LD_PRELOAD has libjsig.so.  This was the remedy for JVM crashes under NVIDIA drivers circa 2010. */
+  var checkForLibjsig = setBoolean("checkForLibjsig", default=false)
+  /** Output activities of the compile-time Profiler. */
+  var verboseProfiler = setBoolean("verboseProfiler", default=false)
+  /** Profiler should touch this much memory (in MB) to ensure a flushed L2 cache. */
+  var profilerCacheFlushSizeMB = setDouble("profilerCacheFlushSizeMB", default=4.0)
+  /** Number of steps the profiler executes prior to timing its kernels. */
+  var profilerWarmupSteps = setInt("profilerWarmupSteps", default=1)
+  /** Number of steps the profiler executes to time its kernels (after the warmup steps). */
+  var profilerSteps = setInt("profilerSteps", default=1)
+  /** Directs the profiler to always profile the kernels, ignoring (but nonetheless updating) the profiler cache. */
+  var forceProfiling = setBoolean("forceProfiling", default=false)
+  /** Directs the profiler to nuke the profiler cache. */
+  var deleteProfilerCache = setBoolean("deleteProfilerCache", default=false)
   /** Release version, is not automatically discernible from the release jar manifest */
   val defaultReleaseVersion = "5.0.0-SNAPSHOT"
 
@@ -118,6 +133,12 @@ object Cog {
   def setInt(parameter: String, default: Int = 0) = {
     val parameterStr = System.getProperty("cog." + parameter, default.toString)
     parameterStr.toInt
+  }
+
+  /** Looks up and sets a Double parameter based on a JVM arg, e.g. -Dcog.profilerCacheFlushSizeMB=1.5 */
+  def setDouble(parameter: String, default: Double = 0.0) = {
+    val parameterStr = System.getProperty("cog." + parameter, default.toString)
+    parameterStr.toDouble
   }
 
   /** Looks up and sets a string parameter based on a JVM arg, e.g. -Dcog.platform="amd" */

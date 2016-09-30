@@ -17,13 +17,13 @@
 package cogx.compiler.codegenerator.opencl.generator
 
 import cogx.platform.opencl.OpenCLKernelCodeGenParams
-import cogx.platform.types.{VirtualFieldRegister, ConvolutionSmallTensorUsePolicy, ConvolutionFFTUsePolicy, AbstractKernel}
+import cogx.platform.types.{AbstractKernel, ConvolutionFFTUsePolicy, ConvolutionSmallTensorUsePolicy, VirtualFieldRegister}
 import cogx.compiler.parser.op._
 import cogx.compiler.codegenerator.opencl.hyperkernels._
 import cogx.compiler.codegenerator.common.FieldPolicies._
 import cogx.compiler.codegenerator.opencl.cpukernels._
 import cogx.compiler.parser.syntaxtree.Field
-import cogx.compiler.codegenerator.opencl.fragments.{SmallTensorAddressing, HyperKernel}
+import cogx.runtime.execution.Profiler
 
 /** Generates OpenCL code for operations that produce complex scalar fields.
   *
@@ -38,12 +38,14 @@ object ComplexVectorFieldGenerator {
     * @param codeGenParams A bundle of device parameters that affect kernel code generation and optimization.
     * @param fftUse policy for FFT use in fast convolution.
     * @param smallTensorUse policy for when to use SmallTensorAddressing in convolution.
+    * @param profiler A facility for getting kernel execution times
     * @return OpenCL kernel implementing the operation.
     */
   def apply(field: Field, inputs: Array[VirtualFieldRegister],
             codeGenParams: OpenCLKernelCodeGenParams,
             fftUse: ConvolutionFFTUsePolicy,
-            smallTensorUse: ConvolutionSmallTensorUsePolicy): AbstractKernel =
+            smallTensorUse: ConvolutionSmallTensorUsePolicy,
+            profiler: Profiler): AbstractKernel =
   {
     val opcode = field.opcode
     val fieldType = field.fieldType
@@ -61,6 +63,8 @@ object ComplexVectorFieldGenerator {
       // User GPU kernel:
       case op: UserGPUOpcode =>
         UserKernel(op, inputs, fieldType)
+      case op: UserGPUWithVariantsOpcode =>
+        UserWithVariantsKernel(op, inputs, fieldType, profiler)
 
       // single-function GPU kernels (listed here to match first before
       // the more generalized kernels below):

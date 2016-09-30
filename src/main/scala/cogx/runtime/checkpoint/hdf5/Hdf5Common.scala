@@ -18,6 +18,7 @@ package cogx.runtime.checkpoint.hdf5
 
 import ncsa.hdf.hdf5lib.H5._
 import ncsa.hdf.hdf5lib.HDF5Constants._
+import hdfloader.Hdf5NativesLoader
 
 import scala.collection.mutable
 
@@ -35,6 +36,20 @@ trait Hdf5Common {
 
   /** The sequence of opened hdf5 groups, maintained as a stack. */
   lazy val groupIdStack = mutable.Stack[Int](openGroupAbsolutePath("/"))
+
+  // Load the native libraries, silencing the INFO and DEBUG messages that the hdf5 loader emits
+  // This tweeking with log levels could alternatively be placed in the hdf5-loader project, along with the
+  // library dependency on ch.qos.logback.
+  def loadNativeLibrary(): Unit = {
+    val rootLogger = org.slf4j.LoggerFactory.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME).asInstanceOf[ch.qos.logback.classic.Logger]
+    val currentLogLevel = rootLogger.getLevel()
+    try {
+      rootLogger.setLevel(ch.qos.logback.classic.Level.WARN);
+      Hdf5NativesLoader.load()
+    }
+    finally
+      rootLogger.setLevel(currentLogLevel)
+  }
 
   /** Close object store, preventing further writes. */
   def close() {

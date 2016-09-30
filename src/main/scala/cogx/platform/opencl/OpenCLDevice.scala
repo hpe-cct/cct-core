@@ -31,20 +31,19 @@ import com.jogamp.opencl.CLException.CLInvalidQueuePropertiesException
   * per device, thus those abstractions are buried within this class.
   *
   * @author Greg Snider
-  *
   * @param clDevice Low-level OpenCL device.
   * @param platform Cog's platform object associated with this device.
-  * @param profile Should command queues used by this device enable profiling?
+  * @param profilerUse Should command queues used by this device enable profiling?
   */
 private[cogx]
 class OpenCLDevice private[opencl](val clDevice: CLDevice,
                                    val platform: OpenCLPlatform,
-                                   profile: Boolean)
+                                   profilerUse: Boolean)
 {
   /** Buffers for this device. */
   private var fieldBuffers = new IdentityHashSet[OpenCLBuffer]
   /** Command queue used to hold all commands to the device. */
-  val commandQueue = new OpenCLParallelCommandQueue(this, profile)
+  val commandQueue = new OpenCLParallelCommandQueue(this, profilerUse || Cog.profile)
   /** Compiled program to run on this device. */
   private var _program: OpenCLProgram = null// = new OpenCLProgram(this)
   /** Kernels which run on the CPU (but which require GPU buffers). */
@@ -58,13 +57,39 @@ class OpenCLDevice private[opencl](val clDevice: CLDevice,
 
   def program: OpenCLProgram = {
     if (_program == null) {
-      _program = new OpenCLProgram(this)
+      _program = new OpenCLProgram(this, profilerUse)
     }
     _program
   }
 
-  /** The manufacturer of the device. */
-  def vendor: String = clDevice.getVendor()
+  // Still developing a solution for the following problem:
+  //
+  // Suppose you are compiling and running multiple compute graphs simultaneously.  You wouldn't want the profiling
+  // that takes place during compilation to be effected by the other compute graphs that might have started running.
+  // We can probably assume that a kernel being run is never preempted, but what about switching in the middle of
+  // a step?  If this occurs, the L2 cache behavior could be quite different.
+  //
+  // It's tempting to have a single "step" lock on a device (at least for all the ComputeGraphs running under a single JVM).
+  // The commented lock below might be useful for that.  But what if the driver does preempt a thread mid step, while it
+  // holds the device lock?  Would the new context have control of the GPU, but be locked-out of submitting kernels?
+  // This might never occur, since why would the driver switch to a thread/context that has submitted no kernels to run?
+  //
+  // If a single lock proves to be a problem, one solution might be patterned after the reader/writer semaphore problem.
+  // A profiler could be considered a "writer" that is granted exclusive use of the GPU, while a running ComputeGraph is
+  // like a "reader" that can use the GPU with other readers, but not a writer.  We'd have to think about fairness so that
+  // a Profiler would not be starved from use of the GPU if other ComputeGraphs were running.
+
+  /** A unique object for the Device under this JVM. Better than using the device index because of possible filtering. */
+  val lock = Symbol(clDevice.getID().toString())
+
+  /** The manufacturer of the device, with some attempt to remove uninteresting bits. */
+  def vendor: String = clDevice.getVendor().stripSuffix(" Corporation").stripSuffix(", Inc.")
+
+  /** The name of the device. */
+  def name: String = clDevice.getName()
+
+  /** The name of the device. */
+  def fullNameNoSpaces: String = s"$vendor $name".replace(' ', '_')
 
   /** Return true if this is an NVidia OpenCL platform. */
   def isNVidia =
@@ -161,6 +186,12 @@ class OpenCLDevice private[opencl](val clDevice: CLDevice,
     clDevice.getMaxWorkGroupSize
   }
 
+  // Not particularly useful- this is the sum of all the GPU's SM's L1 caches, not the L2 cache!
+  /** The size of the GPU's cache of global memory (in bytes). */
+  def globalMemCacheSize: Long = {
+    clDevice.getGlobalMemCacheSize
+  }
+
   /** Can the device execute kernels in parallel or out-of-order w.r.t. the CommandQueue enqueueing order? */
   private[cogx] lazy val supportsOutOfOrderCommandQueues = {
     val supported = clDevice.getQueueProperties.contains(CLCommandQueue.Mode.OUT_OF_ORDER_MODE)
@@ -210,7 +241,7 @@ class OpenCLDevice private[opencl](val clDevice: CLDevice,
   def instantiateKernel(kernel: OpenCLDeviceKernel) {
     require(deviceKernels contains kernel)
     val kernelName = new KernelSourceCode(kernel.kernelCode).nameAsRun
-    val clKernel = program.getProgram(resourceDescriptor).createCLKernel(kernelName)
+    val clKernel = program.getProgram(resourceDescriptor _).createCLKernel(kernelName)
     require(clKernel != null, "Unable to create CLKernel for " + kernelName)
     kernel.instantiate(this, clKernel)
   }
@@ -309,14 +340,25 @@ class OpenCLDevice private[opencl](val clDevice: CLDevice,
       ""
   }
 
+  /** Release all OpenCL resources for this device,  The device can no
+    * longer be reused because of the release of the commandQueues.
+    */
+  private[opencl] def release() {
+    releaseForReuse()
+    // command queue
+    if (Cog.verboseOpenCLDevices)
+      println("  releasing command queue for " + this.toString)
+    commandQueue.release
+  }
+
   /** Release all OpenCL resources for this device, EXCEPT do not release
     * the command queue or the device itself. This leaves it ready to be
     * reused.
     */
-  private[opencl] def release() {
+  private[cogx] def releaseForReuse(): Unit = {
     val resourcesToRelease =
       fieldBuffers.size + deviceKernels.size + cpuKernels.size +
-              (if (_program != null) 1 else 0)
+        (if (_program != null) 1 else 0)
 
     if (Cog.verboseOpenCLDevices && resourcesToRelease > 0)
       println("Releasing OpenCLDevice resources: " + this.toString)
@@ -344,10 +386,6 @@ class OpenCLDevice private[opencl](val clDevice: CLDevice,
       _program.getProgram().release()
       _program = null
     }
-    // command queue
-    if (Cog.verboseOpenCLDevices)
-      println("  releasing command queue for " + this.toString)
-    commandQueue.release
   }
 
   /** A string descriptor of the device, used for debugging. */

@@ -30,14 +30,14 @@ import cogx.platform.checkpoint.{Saveable, RestoreFactory, ObjectSaver, ObjectRe
   * @author Greg Snider
   */
 private[cogx]
-class WorkGroupParameters(val dimensions: Int) extends Saveable {
+class WorkGroupParameters(val dimensions: Int,
+                          val globalLayers: Long,
+                          val globalRows: Long,
+                          val globalColumns: Long,
+                          val localLayers: Long,
+                          val localRows: Long,
+                          val localColumns: Long) extends Saveable {
   require(dimensions >= 0 && dimensions <= 3)
-  var globalLayers = 0L
-  var globalRows = 0L
-  var globalColumns = 0L
-  var localLayers = 0L
-  var localRows = 0L
-  var localColumns = 0L
 
   /** The number of work items in a work group */
   def localWorkSize = (localLayers * localRows * localColumns).toInt
@@ -126,14 +126,15 @@ object WorkGroupParameters extends RestoreFactory {
     * @return The created WorkGroupParameters based on the read information.
     */
   def restore(restorer: ObjectRestorer): WorkGroupParameters = {
-    val dimensions = restorer.readInt("dimensions")
-    val retVal = new WorkGroupParameters(dimensions)
-    retVal.globalLayers = restorer.readLong("globalLayers")
-    retVal.globalRows = restorer.readLong("globalRows")
-    retVal.globalColumns = restorer.readLong("globalColumns")
-    retVal.localLayers = restorer.readLong("localLayers")
-    retVal.localRows = restorer.readLong("localRows")
-    retVal.localColumns = restorer.readLong("localColumns")
+    val retVal = new WorkGroupParameters(
+      dimensions = restorer.readInt("dimensions"),
+      globalLayers = restorer.readLong("globalLayers"),
+      globalRows = restorer.readLong("globalRows"),
+      globalColumns = restorer.readLong("globalColumns"),
+      localLayers = restorer.readLong("localLayers"),
+      localRows = restorer.readLong("localRows"),
+      localColumns = restorer.readLong("localColumns")
+    )
     retVal
   }
 }

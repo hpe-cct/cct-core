@@ -51,9 +51,10 @@ import cogx.runtime.allocation.{AllocateCluster, AllocationMode}
   * @param circuit The DAG of kernels to be evaluated.
   * @param platform The platform upon which the circuit is evaluated.
   * @param mode The specific machines and devices upon which the circuit is evaluated.
+  * @param profileSize How often to print out profiling statistics (0 == never)
   */
 private[runtime]
-class ClusterSupervisor(circuit: KernelCircuit, platform: OpenCLPlatform, mode: AllocationMode)
+class ClusterSupervisor(circuit: KernelCircuit, platform: OpenCLPlatform, mode: AllocationMode, profileSize: Int)
         extends Actor
 {
   import SupervisorMessages._
@@ -181,7 +182,7 @@ class ClusterSupervisor(circuit: KernelCircuit, platform: OpenCLPlatform, mode: 
       val computeNodes: Seq[ComputeNode] = cluster.computeNodes
       nodeSupervisors = computeNodes.zipWithIndex.map {
         case (node, idx) =>
-          CogActorSystem.createActor(context, Props(new ComputeNodeSupervisor(node, platform)),
+          CogActorSystem.createActor(context, Props(new ComputeNodeSupervisor(node, platform, profileSize)),
             name="ComputeNodeSupervisor-"+idx)
       }
       for (i <- 0 until computeNodes.length) {

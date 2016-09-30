@@ -16,7 +16,7 @@
 
 package cogx.compiler.codegenerator.opencl.generator
 
-import cogx.platform.types.{VirtualFieldRegister, AbstractKernel}
+import cogx.platform.types.{AbstractKernel, VirtualFieldRegister}
 import cogx.compiler.codegenerator.opencl.hyperkernels._
 import cogx.compiler.parser.op._
 import cogx.compiler.codegenerator.opencl.cpukernels._
@@ -26,9 +26,10 @@ import cogx.compiler.parser.op.TrimOp
 import cogx.compiler.parser.op.UpsampleOp
 import cogx.compiler.parser.op.DownsampleOp
 import cogx.compiler.parser.op.SubfieldOp
-import cogx.compiler.parser.syntaxtree.{RestoreHooks, Field}
-import cogx.compiler.codegenerator.opencl.hyperkernels.domaintransform.{ColorDomainFilterRowsHyperKernel, ColorDomainFilterColumnsHyperKernel}
-import cogx.compiler.codegenerator.opencl.fragments.{SmallTensorAddressing, HyperKernel}
+import cogx.compiler.parser.syntaxtree.{Field, RestoreHooks}
+import cogx.compiler.codegenerator.opencl.hyperkernels.domaintransform.{ColorDomainFilterColumnsHyperKernel, ColorDomainFilterRowsHyperKernel}
+import cogx.platform.opencl.OpenCLKernelCodeGenParams
+import cogx.runtime.execution.Profiler
 
 /** Generates OpenCL code for operations that produce color fields.
   *
@@ -40,9 +41,14 @@ object ColorFieldGenerator {
     *
     * @param field The field which will have a kernel generated for it.
     * @param inputs Inputs to the operation.
+    * @param codeGenParams A bundle of device parameters that affect kernel code generation and optimization.
+    * @param profiler A facility for getting kernel execution times
     * @return OpenCL kernel implementing the operation.
     */
-  def apply(field: Field, inputs: Array[VirtualFieldRegister]): AbstractKernel =
+  def apply(field: Field,
+            inputs: Array[VirtualFieldRegister],
+            codeGenParams: OpenCLKernelCodeGenParams,
+            profiler: Profiler): AbstractKernel =
   {
     val opcode = field.opcode
     val fieldType = field.fieldType
@@ -68,6 +74,8 @@ object ColorFieldGenerator {
       // User GPU kernel:
       case op: UserGPUOpcode =>
         UserKernel(op, inputs, fieldType)
+      case op: UserGPUWithVariantsOpcode =>
+        UserWithVariantsKernel(op, inputs, fieldType, profiler)
 
       // GPU kernels:
       case DomainFilterColumnsOp =>

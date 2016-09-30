@@ -109,6 +109,11 @@ private[cogx] case class PipelinedColorSensorOp(_nextInput: () => Option[Iterato
 /** An opcode representing a constant value in the compute graph. */
 private[cogx] abstract class ConstantOp extends NulleryOpcode
 
+/** A constant field in a computation graph. All 'numbers' in all tensors are the same. */
+private[cogx] case class ConstantScalarOp(value: Float)
+  extends ConstantOp {
+  override def toString: String = "ConstantScalarOp(" + value + ")"
+}
 
 
 /** A 0-D constant scalar field in a computation graph. */

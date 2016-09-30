@@ -6,7 +6,7 @@ organizationName := "Hewlett Packard Labs"
 
 organizationHomepage := Some(url("http://www.labs.hpe.com"))
 
-version := "5.0.0-alpha.5"
+version := "5.0.0-alpha.7"
 
 organization := "com.hpe.cct"
 
@@ -58,7 +58,7 @@ libraryDependencies += "gov.nist.math" % "jama" % "1.0.3"
 
 libraryDependencies += "io.github.bchandle" %% "im-scala-swing" % "1.0"
 
-libraryDependencies += "org.slf4j" % "slf4j-nop" % "1.7.12" % "test"
+libraryDependencies += "ch.qos.logback" % "logback-classic" % "1.1.7"
 
 libraryDependencies += "org.scalatest" %% "scalatest" % "2.2.6" % "test"
 

@@ -102,7 +102,7 @@ class OpenCLEvaluatorSpec extends FunSuite with MustMatchers {
     val evaluator: EvaluatorInterface =  {
       val ta = TypedActor(actorSystem).typedActorOf(TypedProps(
         classOf[EvaluatorInterface],
-        new CircuitEvaluator(circuit, platform, AllocationMode.default)).
+        new CircuitEvaluator(circuit, platform, AllocationMode.default, 0)).
               withDispatcher("CogActors.one-actor-per-thread-dispatcher"),
         name="CircuitEvaluator").
               asInstanceOf[EvaluatorInterface]
@@ -288,10 +288,14 @@ class OpenCLEvaluatorSpec extends FunSuite with MustMatchers {
     class DeviceDoubler(in: AbstractKernel, field: FieldType)
             extends OpenCLDeviceKernel(DummyOp, Array(in.outputs(0)), Array(field))
     {
-      val workGroup = new WorkGroupParameters(1) {
-        globalColumns = field.fieldShape.points
+      val workGroup = new WorkGroupParameters(1,
+        globalLayers = 1,
+        globalRows = 1,
+        globalColumns = field.fieldShape.points,
+        localLayers = 1,
+        localRows = 1,
         localColumns = 1
-      }
+      )
       val kernelCode: String =
         """__kernel void dbl(global const float *a, global float *answer) {
           |    unsigned int xid = get_global_id(0);
@@ -360,10 +364,14 @@ class OpenCLEvaluatorSpec extends FunSuite with MustMatchers {
     class DeviceIncrementer(in: AbstractKernel, field: FieldType)
             extends OpenCLDeviceKernel(DummyOp, Array(in.outputs(0)), Array(field))
     {
-      val workGroup = new WorkGroupParameters(1) {
-        globalColumns = field.fieldShape.points
+      val workGroup = new WorkGroupParameters(1,
+        globalLayers = 1,
+        globalRows = 1,
+        globalColumns = field.fieldShape.points,
+        localLayers = 1,
+        localRows = 1,
         localColumns = 1
-      }
+      )
       val kernelCode: String =
         """__kernel void incr(global const float *a, global float *answer) {
           |    unsigned int xid = get_global_id(0);
@@ -440,10 +448,14 @@ class OpenCLEvaluatorSpec extends FunSuite with MustMatchers {
             extends OpenCLDeviceKernel(DummyOp, Array(input0, input1), Array(input1.fieldType, input0.fieldType))
     {
       require(input0.fieldType == input1.fieldType)
-      val workGroup = new WorkGroupParameters(1) {
-        globalColumns = input0.fieldType.fieldShape.points
+      val workGroup = new WorkGroupParameters(1,
+        globalLayers = 1,
+        globalRows = 1,
+        globalColumns = input0.fieldType.fieldShape.points,
+        localLayers = 1,
+        localRows = 1,
         localColumns = 1
-      }
+      )
       val kernelCode: String =
         """__kernel void incr(global const float *in0,
           |                   global const float *in1,

@@ -58,6 +58,16 @@ class JavaObjectSaver(filename: String) extends ObjectSaver {
     oos.writeObject(name)
     oos.writeObject(fArray)
   }
+  /** Write a Double to the object store. */
+  def writeDouble(name: String, d: Double) {
+    oos.writeObject(name)
+    oos.writeDouble(d)
+  }
+  /** Write an Array[Double] to the object store. */
+  def writeDoubleArray(name: String, dArray: Array[Double]) {
+    oos.writeObject(name)
+    oos.writeObject(dArray)
+  }
   /** Write a String to the object store. */
   def writeString(name: String, s: String) {
     oos.writeObject(name)

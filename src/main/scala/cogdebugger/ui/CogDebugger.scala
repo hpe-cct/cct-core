@@ -246,7 +246,7 @@ class CogDebugger(computeGraphAndAppName: Option[(ComputeGraph, String)],
   /** If an application name is defined, returns a handle to the directory
     * associated with the application (~/.cogexmachine/appnam). */
   private def getAppDir(state: DebuggerState): Option[File] = {
-    for (dir   <- CogDebuggerApp.cogdir;
+    for (dir   <- CogDebuggerApp.cogGuiDir;
          state <- debuggerState;
          name  <- state.appName) yield {
       new File(dir, Util.sanitizeString(name))
@@ -439,7 +439,7 @@ class CogDebugger(computeGraphAndAppName: Option[(ComputeGraph, String)],
     * the state of any buttons or dropdowns on those probe frames.
     */
   protected def saveApplicationState() {
-    for (dir <- CogDebuggerApp.cogdir) {
+    for (dir <- CogDebuggerApp.cogGuiDir) {
       for (state <- debuggerState) {
         for (name <- state.appName) {
           val appDir = new File(dir, Util.sanitizeString(name))
@@ -488,7 +488,7 @@ class CogDebugger(computeGraphAndAppName: Option[(ComputeGraph, String)],
     * of their buttons and dropdowns.
     */
   def restore() {
-    for (dir <- CogDebuggerApp.cogdir;
+    for (dir <- CogDebuggerApp.cogGuiDir;
          state <- debuggerState;
          appName <- state.appName) { // Need yield here?
       val appDir = new File(dir, Util.sanitizeString(appName))

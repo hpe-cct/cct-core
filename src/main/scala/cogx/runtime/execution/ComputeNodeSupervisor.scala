@@ -48,11 +48,12 @@ import cogx.runtime.FieldID
   *
   * @param computeNode The compute node managed by this actor.
   * @param platform The platform upon which the circuit is evaluated.
+  * @param profileSize How often to print out profiling statistics (0 == never)
   *
   * @author Greg Snider
   */
 private[runtime]
-class ComputeNodeSupervisor(computeNode: ComputeNode, platform: OpenCLPlatform)
+class ComputeNodeSupervisor(computeNode: ComputeNode, platform: OpenCLPlatform, profileSize: Int)
         extends Actor
 {
   import SupervisorMessages._
@@ -135,7 +136,8 @@ class ComputeNodeSupervisor(computeNode: ComputeNode, platform: OpenCLPlatform)
       case (gpu, idx) =>
         require(gpu.circuit != null, "GPU is lacking a bound circuit")
         val device = platform.devices(gpu.deviceIndex)
-        CogActorSystem.createActor(context, Props(new GPUSupervisorActor(device, gpu)), name="GPUSupervisorActor-"+idx)
+        CogActorSystem.createActor(context,
+          Props(new GPUSupervisorActor(device, gpu, profileSize)), name="GPUSupervisorActor-"+idx)
     }
     for (i <- 0 until computeNode.gpus.length) {
       computeNode.gpus(i).circuit.traversePostorder {

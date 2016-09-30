@@ -16,8 +16,7 @@
 
 package cogx.compiler.codegenerator.opencl.generator
 
-import cogx.compiler.codegenerator.opencl.fragments.{AddressingMode, HyperKernel}
-import cogx.compiler.gpu_operator.GPUOperator
+import cogx.compiler.codegenerator.opencl.fragments.HyperKernel
 import cogx.compiler.parser.op.UserGPUOpcode
 import cogx.platform.types.{FieldType, VirtualFieldRegister}
 
@@ -40,33 +39,19 @@ object UserKernel {
             inputs: Array[VirtualFieldRegister],
             resultTypes: Array[FieldType]): HyperKernel =
   {
-    val gpuOperator: GPUOperator = opcode.gpuOperator
-
     // Figure out global threads.
     // If globalThreads has not been set up by the user, the default
     // workField type is the type of the first output
-    val workType: FieldType = gpuOperator.globalThreads match {
+    val workType: FieldType = opcode.globalThreads match {
       case Some(fieldType) => fieldType
       case None => resultTypes(0)
     }
 
-    ////////////////////////////////////////////////////////////////////////////
-    //
-    // Policy decision here: to superthread or not to superthread?
-    //
-    // You can query the addressing mode by calling
-    // gpuOperator.threadAddressing. The policy decision will be based on
-    // this addressing mode plus the resultType.
-    //
-    ////////////////////////////////////////////////////////////////////////////
-    //gpuOperator.superthread()
-
-
-    val addressMode = gpuOperator.threadAddressing
-    val code = gpuOperator.code
+    val addressMode = opcode.addressing
+    val code = opcode.code
 
     // Figure out local threads.
-    gpuOperator.localThreads match {
+    opcode.localThreads match {
       case Some(workGroupShape) =>
         val workGroupRows = workGroupShape(0)
         val workGroupColumns = workGroupShape(1)

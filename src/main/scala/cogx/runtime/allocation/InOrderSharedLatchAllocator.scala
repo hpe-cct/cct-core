@@ -60,11 +60,18 @@ class InOrderSharedLatchAllocator(kernelEnqueueOrder: Seq[OpenCLAbstractKernel])
     /** Kernels that have already executed. */
     lazy val executedKernels = new IdentityHashSet[AbstractKernel]()
 
-    /** Leaves of the kernel DAG- these Constant and Recurrence kernels should not be part of the
-      * returned map- they will be given flip-flops or unshared latches by the caller of this routine
+    /** Leaves of the kernel DAG- the Constant and Recurrence kernels should not be part of the
+      * returned map- they will be given flip-flops or unshared latches by the caller of this routine.
+      * Any device kernels (as is possible with the 0-input GPUOperators favored by the Profiler) become
+      * "ready kernels".
       */
     val leaves = new IdentityHashSet[AbstractKernel]()
-    circuit.leaves.foreach(leaves.add(_))
+    circuit.leaves.foreach( _ match {
+      case zeroInputDeviceKernel: OpenCLDeviceKernel =>
+        precursors(zeroInputDeviceKernel) = new IdentityHashSet[AbstractKernel]()
+        readyKernels += zeroInputDeviceKernel
+      case otherLeaf => leaves.add(otherLeaf)
+    })
 
     /** Are all the kernels that use the latch (the `lastConsumers`) guaranteed
       * to have executed (are they in the precursors set of this kernel)?
@@ -132,7 +139,7 @@ class InOrderSharedLatchAllocator(kernelEnqueueOrder: Seq[OpenCLAbstractKernel])
           val numSinkInputs = sink.inputs.length
           var numPendingInputs =
             numPendingInputKernels.getOrElseUpdate(sink, numSinkInputs)
-          require(numPendingInputs > 0)
+          require(numPendingInputs > 0, "InOrderSharedLatchAllocator: compiler internal error.")
           // Optimizers should have consolidated all uses of a given input to one, but just in case...
           var inputIndex = 0
           while (numPendingInputs > 0 && inputIndex < numSinkInputs) {
@@ -182,7 +189,7 @@ class InOrderSharedLatchAllocator(kernelEnqueueOrder: Seq[OpenCLAbstractKernel])
         virtualRegister.source.isInstanceOf[OpenCLCpuKernel]
 
     // First process inputs without allocating any latches
-    circuit.leaves.foreach(input => postProcessKernel(input))
+    leaves.foreach(input => postProcessKernel(input))
 
     // Main loop: kernels are processed after all their inputs have been
     // processed, at which point the kernel's precursor set is known to be complete.

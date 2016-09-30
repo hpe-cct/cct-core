@@ -30,10 +30,14 @@ import cogx.parameters.Cog
   * available for this platform; and `release`, which must be called before
   * the program exits to release all OpenCL resources.
   *
+  * @param profilerUse Is this a platform created by the compile-time Profiler
+  *
   * @author Greg Snider
   */
 private[cogx]
-class OpenCLPlatform {
+class OpenCLPlatform(profilerUse: Boolean) {
+
+  def this() = this(false)
   /** Enable profiling of OpenCL kernel execution by setting Cog.profile or
     * by using the JVM arg -Dcog.profile. There are rumors online
     * that enabling this disables multiple, concurrent kernel launch on some
@@ -84,7 +88,8 @@ class OpenCLPlatform {
     }
     if (Cog.verboseOpenCLPlatform)
       println("  releasing context " + clContext_.toString)
-    clContext_.release()
+    if (clContext != null)
+      clContext_.release()
     if (Cog.verboseOpenCLPlatform)
       println("OpenCLPlatform: SHUT DOWN.")
     fieldMemoryAllocator.destroyAll()
@@ -157,7 +162,7 @@ class OpenCLPlatform {
 
     // Create the simplified OpenCLDevices.
     Array.tabulate(selectedDevices.length) {
-      i => new OpenCLDevice(selectedDevices(i), this, Cog.profile)
+      i => new OpenCLDevice(selectedDevices(i), this, profilerUse)
     }
   }
 

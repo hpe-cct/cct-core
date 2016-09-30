@@ -77,9 +77,10 @@ import cogx.runtime.allocation.AllocationMode
   * @param circuit The DAG of kernels to be evaluated.
   * @param platform The platform upon which the circuit is evaluated.
   * @param mode The specific machines and devices upon which the circuit is evaluated.
+  * @param profileSize How often to print out profiling statistics (0 == never)
   */
 private[cogx]
-class CircuitEvaluator(circuit: KernelCircuit, platform: OpenCLPlatform, mode: AllocationMode)
+class CircuitEvaluator(circuit: KernelCircuit, platform: OpenCLPlatform, mode: AllocationMode, profileSize: Int)
         extends EvaluatorInterface
         with PreStart
         with PostStop
@@ -88,7 +89,7 @@ class CircuitEvaluator(circuit: KernelCircuit, platform: OpenCLPlatform, mode: A
   import SupervisorMessages._
   /** Actor which supervises the entire computation. */
   private val clusterSupervisor =
-    CogActorSystem.createActor(TypedActor.context, Props(new ClusterSupervisor(circuit, platform, mode)),
+    CogActorSystem.createActor(TypedActor.context, Props(new ClusterSupervisor(circuit, platform, mode, profileSize)),
       name="ClusterSupervisor")
 
   /** How long to wait before assuming something has crashed. */
@@ -338,6 +339,9 @@ class CircuitEvaluator(circuit: KernelCircuit, platform: OpenCLPlatform, mode: A
   /** Informs this actor of its identity for self-messaging */
   def tellIdentity(me: ActorRef) {
     myActor = me
+    // Add Cog function to thread name to aide thread probing tools like jconsole
+    // The Actor info is more enlightening than the name set in preStart().
+    AnnotateThread(myActor.toString)
   }
 
   // See p. 91 and p. 131. of book "Akka Essentials" by M. Gupta.

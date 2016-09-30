@@ -16,19 +16,21 @@
 
 package cogx.compiler.codegenerator.opencl.generator
 
-import cogx.compiler.codegenerator.{KernelCircuit, CodeGenerator}
+import cogx.compiler.codegenerator.{CodeGenerator, KernelCircuit}
 import cogx.compiler.parser.syntaxtree._
 import cogx.platform.types._
-import cogx.platform.opencl.{OpenCLKernelCodeGenParams, OpenCLAbstractKernel}
+import cogx.platform.opencl.{OpenCLAbstractKernel, OpenCLKernelCodeGenParams}
 import cogx.compiler.codegenerator.opencl.cpukernels.RecurrentFieldKernel
 import cogx.cogmath.collection.IdentityHashMap
 import cogx.parameters.Cog
+import cogx.runtime.execution.Profiler
 
 /** Generates a Circuit of OpenCL kernels from a syntax tree.
   *
   * @param codeGenParams A bundle of device parameters that affect kernel code generation and optimization.
   * @param fftUse policy for FFT use in fast convolution.
   * @param smallTensorUse policy for when to use SmallTensorAddressing in convolution.
+  * @param profiler A facility for getting kernel execution times
   *
   * Note: if we start adding more compiler parameters like `fftUse`, then
   * we should probably create a wrapper class to pass around instead of
@@ -42,7 +44,8 @@ import cogx.parameters.Cog
 private[cogx]
 class OpenCLCodeGenerator(codeGenParams: OpenCLKernelCodeGenParams = null,
                           fftUse: ConvolutionFFTUsePolicy = UseFFTWhenBest,
-                          smallTensorUse: ConvolutionSmallTensorUsePolicy = UseSmallTensorWhenBest)
+                          smallTensorUse: ConvolutionSmallTensorUsePolicy = UseSmallTensorWhenBest,
+                          profiler: Profiler = null)
         extends CodeGenerator[OpenCLAbstractKernel] {
   /** A map from an Operation to the Kernel it's associated with in the KernelCircuit */
   private val operationToKernel = new IdentityHashMap[Operation, OpenCLAbstractKernel]()
@@ -120,27 +123,29 @@ class OpenCLCodeGenerator(codeGenParams: OpenCLKernelCodeGenParams = null,
                 outField match {
                   case f: ScalarField =>
                     ScalarFieldGenerator(f, translateFields(f.inputs),
-                      codeGenParams, fftUse, smallTensorUse)
+                      codeGenParams, fftUse, smallTensorUse, profiler)
                   case f: ColorField =>
-                    ColorFieldGenerator(f, translateFields(f.inputs))
+                    ColorFieldGenerator(f, translateFields(f.inputs),
+                      codeGenParams, profiler)
                   case f: VectorField =>
                     VectorFieldGenerator(f, translateFields(f.inputs),
-                      codeGenParams, fftUse, smallTensorUse)
+                      codeGenParams, fftUse, smallTensorUse, profiler)
                   case f: MatrixField =>
                     MatrixFieldGenerator(f, translateFields(f.inputs),
-                      codeGenParams, fftUse, smallTensorUse)
+                      codeGenParams, fftUse, smallTensorUse, profiler)
                   case f: ComplexField =>
                     ComplexFieldGenerator(f, translateFields(f.inputs),
-                      codeGenParams, fftUse, smallTensorUse)
+                      codeGenParams, fftUse, smallTensorUse, profiler)
                   case f: ComplexVectorField =>
                     ComplexVectorFieldGenerator(f, translateFields(f.inputs),
-                      codeGenParams, fftUse, smallTensorUse)
+                      codeGenParams, fftUse, smallTensorUse, profiler)
                   case x =>
                     throw new RuntimeException("oops, bad field type: " + x.getClass.getSimpleName)
                 }
               }
               else {
-                MultipleFieldGenerator(cursor, translateFields(cursor.inputs), fftUse, smallTensorUse)
+                MultipleFieldGenerator(cursor, translateFields(cursor.inputs),
+                  codeGenParams, fftUse, smallTensorUse, profiler)
               }
             val clKernel = kernel.asInstanceOf[OpenCLAbstractKernel]
             operationToKernel(cursor) = clKernel

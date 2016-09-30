@@ -66,14 +66,14 @@ class TensorDomainFilterRowsHyperKernel private[hyperkernels] (
   // Our strategy is for each work group to work on a single row of the
   // of the input, with one thread for each pixel in the row.
   override lazy val workGroup =
-    new WorkGroupParameters(2) {
-      localLayers  = 1
-      localRows    = 1
+    new WorkGroupParameters(2,
+      globalLayers  = 1,
+      globalRows    = rows,
+      globalColumns = columns,
+      localLayers  = 1,
+      localRows    = 1,
       localColumns = columns
-      globalLayers  = 1
-      globalRows    = rows
-      globalColumns = columns
-    }
+    )
 
   // Parameters for kernel.
   val lineLength = columns

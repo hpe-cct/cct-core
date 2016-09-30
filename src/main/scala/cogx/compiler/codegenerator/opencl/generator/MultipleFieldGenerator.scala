@@ -18,10 +18,12 @@ package cogx.compiler.codegenerator.opencl.generator
 
 import cogx.compiler.parser.op._
 import cogx.compiler.codegenerator.opencl.hyperkernels._
-import cogx.platform.types.{VirtualFieldRegister, ConvolutionSmallTensorUsePolicy, ConvolutionFFTUsePolicy, AbstractKernel}
+import cogx.platform.types.{AbstractKernel, ConvolutionFFTUsePolicy, ConvolutionSmallTensorUsePolicy, VirtualFieldRegister}
 import cogx.compiler.codegenerator.opencl.cpukernels._
-import cogx.compiler.parser.syntaxtree.{RestoreHooks, Operation}
+import cogx.compiler.parser.syntaxtree.{Operation, RestoreHooks}
 import cogx.compiler.parser.op.UserOpcode
+import cogx.platform.opencl.OpenCLKernelCodeGenParams
+import cogx.runtime.execution.Profiler
 
 /** Generates OpenCL code for operations that produce multiple fields.
   *
@@ -33,13 +35,18 @@ object MultipleFieldGenerator {
     *
     * @param operation The Operation which will have a kernel generated for it.
     * @param inputs Inputs to the operation.
+    * @param codeGenParams A bundle of device parameters that affect kernel code generation and optimization.
     * @param fftUse policy for FFT use in fast convolution.
     * @param smallTensorUse policy for when to use SmallTensorAddressing in convolution.
+    * @param profiler A facility for getting kernel execution times
     * @return OpenCL kernel implementing the operation.
     */
-  def apply(operation: Operation, inputs: Array[VirtualFieldRegister],
+  def apply(operation: Operation,
+            inputs: Array[VirtualFieldRegister],
+            codeGenParams: OpenCLKernelCodeGenParams,
             fftUse: ConvolutionFFTUsePolicy,
-            smallTensorUse: ConvolutionSmallTensorUsePolicy): AbstractKernel =
+            smallTensorUse: ConvolutionSmallTensorUsePolicy,
+            profiler: Profiler): AbstractKernel =
   {
     val opcode = operation.opcode
     val fieldTypes = operation.outputs.map(_.fieldType).toArray
@@ -58,6 +65,8 @@ object MultipleFieldGenerator {
       // User GPU kernel:
       case op: UserGPUOpcode =>
         UserKernel(op, inputs, fieldTypes)
+      case op: UserGPUWithVariantsOpcode =>
+        UserWithVariantsKernel(op, inputs, fieldTypes, profiler)
       case op: FFT1DOpRI =>
         FFT1DHyperKernel(inputs, op, fieldTypes)
       case op: InverseFFT1DOpRI =>

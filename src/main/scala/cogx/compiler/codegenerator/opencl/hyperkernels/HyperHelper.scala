@@ -38,7 +38,7 @@ trait HyperHelper {
     */
   def bestAddressMode(inputs: Array[VirtualFieldRegister], result: FieldType): AddressingMode = {
     var inputsAreTensorFields =
-      inputs.map(f => isSmallTensorField(f.fieldType)).reduceLeft(_ && _)
+      inputs.map(f => isSmallTensorField(f.fieldType)).foldLeft(true)(_ && _)
     if (inputsAreTensorFields && isSmallTensorField(result))
       SmallTensorAddressing
     else

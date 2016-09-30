@@ -16,11 +16,11 @@
 
 package cogx.runtime.allocation
 
-import cogx.cogmath.collection.{IdentityHashSet, IdentityHashMap}
+import cogx.cogmath.collection.{IdentityHashMap, IdentityHashSet}
 import cogx.compiler.codegenerator.KernelCircuit
 import cogx.parameters.Cog
 import cogx.platform.cpumemory.BufferType
-import cogx.platform.opencl.{OpenCLCpuKernel, OpenCLDevice}
+import cogx.platform.opencl.{OpenCLCpuKernel, OpenCLDevice, OpenCLDeviceKernel}
 import cogx.platform.types.{AbstractKernel, FieldType, VirtualFieldRegister}
 
 import scala.collection.mutable.ArrayBuffer
@@ -102,7 +102,7 @@ class OutOfOrderSharedLatchAllocator extends SharedLatchAllocator {
           val numSinkInputs = sink.inputs.length
           var numPendingInputs =
             numPendingInputKernels.getOrElseUpdate(sink, numSinkInputs)
-          require(numPendingInputs > 0)
+          require(numPendingInputs > 0, "InOrderSharedLatchAllocator: compiler internal error.")
           // Optimizers should have consolidated all uses of a given input to one, but just in case...
           var inputIndex = 0
           while (numPendingInputs > 0 && inputIndex < numSinkInputs) {
@@ -147,7 +147,12 @@ class OutOfOrderSharedLatchAllocator extends SharedLatchAllocator {
         virtualRegister.source.isInstanceOf[OpenCLCpuKernel]
 
     // First process inputs without allocating any latches
-    circuit.leaves.foreach(input => postProcessKernel(input))
+    circuit.leaves.foreach( _ match {
+      case zeroInputDeviceKernel: OpenCLDeviceKernel =>
+        precursors(zeroInputDeviceKernel) = new IdentityHashSet[AbstractKernel]()
+        readyKernels += zeroInputDeviceKernel
+      case otherLeaf => postProcessKernel(otherLeaf)
+    })
 
     // Main loop: kernels are processed after all their inputs have been
     // processed, at which point the kernel's precursor set is known to be complete.

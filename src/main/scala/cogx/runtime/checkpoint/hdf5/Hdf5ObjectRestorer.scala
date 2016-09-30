@@ -29,7 +29,7 @@ import ncsa.hdf.hdf5lib.HDF5Constants._
   */
 class Hdf5ObjectRestorer(filename: String) extends ObjectRestorer with Hdf5Common {
   //  /** Ensure that HDF5 native library is loaded */
-    Hdf5NativesLoader.load()
+  loadNativeLibrary()
 
   val fileOpenErrorMsg = s"Hdf5ObjectRestorer: Cannot open file $filename"
   // Open an existing HDF5 file read-only
@@ -100,6 +100,18 @@ class Hdf5ObjectRestorer(filename: String) extends ObjectRestorer with Hdf5Commo
   /** Read an Array[Float] from the object store. */
   def readFloatArray(name: String): Array[Float] = {
     readPrimitiveArray(name, H5T_NATIVE_FLOAT, "Float", Array.ofDim[Float]).asInstanceOf[Array[Float]]
+  }
+
+  /** Read a Double from the object store. */
+  def readDouble(name: String): Double = {
+    val readValues = readDoubleArray(name)
+    require(readValues.size == 1, "Expecting simple double, found array of length " + readValues.size )
+    readValues(0)
+  }
+
+  /** Read an Array[Double] from the object store. */
+  def readDoubleArray(name: String): Array[Double] = {
+    readPrimitiveArray(name, H5T_NATIVE_DOUBLE, "Double", Array.ofDim[Double]).asInstanceOf[Array[Double]]
   }
 
   /** Read an Array[Primitives] from the object store.

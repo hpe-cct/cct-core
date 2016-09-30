@@ -61,21 +61,25 @@ trait CheckpointTester {
     val theInt = rng.nextInt()
     val theLong = rng.nextLong()
     val theFloat = rng.nextFloat()
+    val theDouble = rng.nextDouble()
     val theString = "some (not so) random text"
     val theIntArray = Array.tabulate(5){ i => rng.nextInt() }
     val theLongArray = Array.tabulate(7){ i => rng.nextLong() }
     val theFloatArray = Array.tabulate(25){ i => rng.nextFloat() }
+    val theDoubleArray = Array.tabulate(39){ i => rng.nextDouble() }
     val theStringArray = theString.split(' ')
 
     // write single primitives
     saver.writeInt("anInt", theInt)
     saver.writeLong("aLong", theLong)
     saver.writeFloat("aFloat", theFloat)
+    saver.writeDouble("aDouble", theDouble)
     saver.writeString("aString", theString)
     // write arrays of primitives
     saver.writeIntArray("anIntArray", theIntArray)
     saver.writeLongArray("aLongArray", theLongArray)
     saver.writeFloatArray("aFloatArray", theFloatArray)
+    saver.writeDoubleArray("aDoubleArray", theDoubleArray)
     saver.writeStringArray("aStringArray", theStringArray)
 
     saver.close()
@@ -86,11 +90,13 @@ trait CheckpointTester {
     val readInt = restorer.readInt("anInt")
     val readLong = restorer.readLong("aLong")
     val readFloat = restorer.readFloat("aFloat")
+    val readDouble = restorer.readDouble("aDouble")
     val readString = restorer.readString("aString")
     // read arrays of primitives
     val readIntArray = restorer.readIntArray("anIntArray")
     val readLongArray = restorer.readLongArray("aLongArray")
     val readFloatArray = restorer.readFloatArray("aFloatArray")
+    val readDoubleArray = restorer.readDoubleArray("aDoubleArray")
     val readStringArray = restorer.readStringArray("aStringArray")
 
     restorer.close()

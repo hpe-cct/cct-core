@@ -162,6 +162,17 @@ class JavaObjectRestorer(filename: String) extends ObjectRestorer {
     readNamedObject(name).asInstanceOf[Array[Float]]
   }
 
+  /** Read a Double from the object store. */
+  def readDouble(name: String): Double = {
+    verifyName(name)
+    ois.readDouble()
+  }
+
+  /** Read an Array[Double] from the object store. */
+  def readDoubleArray(name: String): Array[Double] = {
+    readNamedObject(name).asInstanceOf[Array[Double]]
+  }
+
   /** Read a String from the object store. */
   def readString(name: String): String = {
     readNamedObject(name).asInstanceOf[String]

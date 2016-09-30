@@ -16,8 +16,12 @@
 
 package cogdebugger
 
+import java.io.File
+
 import libcog._
 import cogdebugger.ui.CogDebugger
+import cogx.utilities.CogDir
+
 import scala.swing._
 import org.interactivemesh.scala.swing.InternalFrame
 
@@ -194,16 +198,19 @@ object CogDebuggerApp {
 
   var verboseMode = false
 
-  val cogdir = {
-    val userDirStr = java.lang.System.getProperty("user.home")
-    val userDir = new java.io.File(userDirStr)
-    val cogDir = new java.io.File(userDir, ".cogexmachina")
-    if (cogDir.exists() || cogDir.mkdir()) {
-      Some(cogDir)
-    } else {
-      Console.err.println("Unable to find or create user '.cogexmachina' " +
-                          "folder. Unable to save or restore GUI state.")
-      None
-    }
+  /** The subdir of the Cog dir that holds the GUI state between CogDebuggerApp invocations. */
+  val GUISubdir = "gui"
+
+  val cogGuiDir = CogDir() match {
+    case Some(dir) =>
+      val guiDir = new java.io.File(dir.getPath, GUISubdir)
+      if (guiDir.isDirectory() || guiDir.mkdir()) {
+        Some(guiDir)
+      } else {
+        Console.err.println(s"Unable to find or create user ${guiDir.getPath} " +
+          "directory.  Unable to save or restore GUI state.")
+        None
+      }
+    case None => None
   }
 }

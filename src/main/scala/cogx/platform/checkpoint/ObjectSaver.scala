@@ -35,6 +35,10 @@ trait ObjectSaver {
   def writeFloat(name: String, f: Float)
   /** Write an Array[Float] to the object store, associating it with key `name`. */
   def writeFloatArray(name: String, fArray: Array[Float])
+  /** Write a Double to the object store, associating it with key `name`. */
+  def writeDouble(name: String, d: Double)
+  /** Write an Array[Double] to the object store, associating it with key `name`. */
+  def writeDoubleArray(name: String, dArray: Array[Double])
   /** Write a String to the object store, associating it with key `name`. */
   def writeString(name: String, s: String)
   /** Write an Array[String] to the object store, associating it with key `name`. */

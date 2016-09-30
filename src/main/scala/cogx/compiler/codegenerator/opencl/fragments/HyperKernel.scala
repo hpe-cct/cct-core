@@ -972,17 +972,13 @@ object HyperKernel {
     val fieldDimensions = workFieldType.dimensions
 
     // The following parameters should depend on the target GPU. XXX
-    // Note: WorkGroup threads = LocalLayers * LocalRows * LocalColumns
-    var LocalLayers, LocalRows, LocalColumns = 0L
-    if (fieldDimensions > 1) {
-      LocalLayers = 1
-      LocalRows = defaultLocalRows
-      LocalColumns = defaultLocalColumns
-    } else {
-      LocalLayers = 1
-      LocalRows = 1
-      LocalColumns = defaultLocalRows * defaultLocalColumns
-    }
+    // Note: local workGroup threads = localLayers * localRows * localColumns
+
+    val (localLayers, localRows, localColumns): Tuple3[Long, Long, Long] =
+      if (fieldDimensions > 1)
+        (1, defaultLocalRows, defaultLocalColumns)
+    else
+        (1, 1, defaultLocalRows * defaultLocalColumns)
 
     // Compute work group parameters. Note that OpenCL supports only dimensions
     // (1, 2, 3), so we must map the Cog computation to that range. Note that
@@ -1027,14 +1023,11 @@ object HyperKernel {
         }
     }
 
-    val parms = new WorkGroupParameters(workGroupDimensions)
-    parms.localLayers = LocalLayers
-    parms.localRows = LocalRows
-    parms.localColumns = LocalColumns
-    /** Round up "globalSize" to the nearest multiple of "localSize".   */
-    parms.globalLayers = roundUp(LocalLayers, layers)
-    parms.globalRows = roundUp(LocalRows, rows)
-    parms.globalColumns = roundUp(LocalColumns, columns)
+    val parms = new WorkGroupParameters(workGroupDimensions,
+      globalLayers = roundUp(localLayers, layers),
+      globalRows = roundUp(localRows, rows),
+      globalColumns = roundUp(localColumns, columns),
+      localLayers, localRows, localColumns)
     parms
   }
 

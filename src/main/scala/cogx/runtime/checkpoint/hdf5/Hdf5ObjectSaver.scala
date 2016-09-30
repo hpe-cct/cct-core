@@ -82,7 +82,7 @@ import scala.collection.mutable
   */
 class Hdf5ObjectSaver(filename: String) extends ObjectSaver with Hdf5Common {
   //  /** Ensure that HDF5 native library is loaded */
-  Hdf5NativesLoader.load()
+  loadNativeLibrary()
 
   val fileOpenErrorMsg = s"Hdf5ObjectRestorer: Cannot create file $filename"
   // Open an existing HDF5 file read-only
@@ -118,6 +118,14 @@ class Hdf5ObjectSaver(filename: String) extends ObjectSaver with Hdf5Common {
   /** Write an Array[Float] to the object store. */
   def writeFloatArray(name: String, fArray: Array[Float]) {
     writePrimitiveArray(name, fArray, H5T_NATIVE_FLOAT, H5T_IEEE_F32LE, "Float")
+  }
+
+  /** Write a Double to the object store. */
+  def writeDouble(name: String, d: Double) { writeDoubleArray(name, Array(d)) }
+
+  /** Write an Array[Double] to the object store. */
+  def writeDoubleArray(name: String, dArray: Array[Double]) {
+    writePrimitiveArray(name, dArray, H5T_NATIVE_DOUBLE, H5T_IEEE_F64LE, "Double")
   }
 
   /** Write a String to the object store. */

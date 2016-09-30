@@ -64,8 +64,9 @@ class ReleaseResourceSpec
     * between ComputeGraphs.  Do this enough times to generate an allocation
     * failure if the resources are not properly released.
     *
-    * The parameter `sizeBytes` dictates much memory both in GPU global memory
-    * and in CPU non-heap memory (a.k.a. direct memory).
+    * The parameter `sizeBytes` dictates how much memory is allocated for each
+    * ComputeGraph, both in GPU global memory and in CPU non-heap memory
+    * (a.k.a. direct memory).
     */
   test("release of memory resources") {
 

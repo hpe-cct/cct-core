@@ -112,45 +112,16 @@ abstract class OpenCLDeviceKernel(opcode: Opcode,
           throw new RuntimeException(toString + " " + name +
             " fails with error code " + event.getStatusCode)
         case CLEvent.ExecutionStatus.COMPLETE =>
-          if (Cog.profile && commandQueue.profile) {
-
-            // This is set to print out wierdnesses in the OpenCL profiling data,
-            // as was seen initially with NVIDIA.  This was localalized to user
-            // events modified by cpu-kernel threads that were different from
-            // the main GPUSupervisor thread.  Now that we think we understand
-            // and have corrected the main cause, we leave this enabled to
-            // identify secondary causes.  The code below can be reduced greatly
-            // once we feel the profiling system is solid.
-
-            // Times that are available to measure: QUEUED, SUBMIT, START, END.
-            val queuedNanos = event.getProfilingInfo(CLEvent.ProfilingCommand.QUEUED)
-            val submitNanos = event.getProfilingInfo(CLEvent.ProfilingCommand.SUBMIT)
-            val startNanos = event.getProfilingInfo(CLEvent.ProfilingCommand.START)
-            val endNanos = event.getProfilingInfo(CLEvent.ProfilingCommand.END)
-            val durationUsecs = (endNanos - startNanos) / 1000.0
-            val InsanelyLongTimeUsecs = 10 * 1000000.0
-            if (queuedNanos >= submitNanos ||
-              submitNanos >= startNanos ||
-              startNanos >= endNanos ||
-              durationUsecs > InsanelyLongTimeUsecs) {            // 10 seconds
-              if (queuedNanos >= submitNanos)
-                println("queued->submit = " + (submitNanos - queuedNanos))
-              if (submitNanos >= startNanos)
-                println("submit->start = " + (startNanos - submitNanos))
-              if (startNanos >= endNanos)
-                println("start->end = " + (endNanos - startNanos))
-              println("**********************************************")
-              println("queued =     " + queuedNanos)
-              println("submit =     " + submitNanos)
-              println("startnanos = " + startNanos)
-              println("endnanos =   " + endNanos)
-              println("**********************************************")
-            }
-            if (durationUsecs > 0.0 && durationUsecs <= InsanelyLongTimeUsecs)
+          if (commandQueue.profile) {
+            val DebugProfileInfoWierdness = false
+            if (DebugProfileInfoWierdness)
+              debugProfileInfoWierdness(event)
+            else {
+              val startNanos = event.getProfilingInfo(CLEvent.ProfilingCommand.START)
+              val endNanos = event.getProfilingInfo(CLEvent.ProfilingCommand.END)
+              val durationUsecs = (endNanos - startNanos) / 1000.0
               stats.addSample(durationUsecs)
-            else
-              stats.addOutlier()
-            //          printf("Exec time for %s = %6.1f usec\n", this.toString, durationUsecs)
+            }
           }
         case other =>
           throw new RuntimeException("Unexpected status for " + toString +
@@ -163,6 +134,46 @@ abstract class OpenCLDeviceKernel(opcode: Opcode,
           " fails by throwing exception: " + e)
     }
     outputTrigger.release()
+  }
+
+  /** Legacy routine used to debug strange (non-causal) NVIDIA profiling times circa 2014. */
+  private def debugProfileInfoWierdness(event: CLEvent): Unit = {
+    // This is set to print out wierdnesses in the OpenCL profiling data,
+    // as was seen initially with NVIDIA.  This was localalized to user
+    // events modified by cpu-kernel threads that were different from
+    // the main GPUSupervisor thread.  Now that we think we understand
+    // and have corrected the main cause, we leave this enabled to
+    // identify secondary causes.  The code below can be reduced greatly
+    // once we feel the profiling system is solid.
+
+    // Times that are available to measure: QUEUED, SUBMIT, START, END.
+    val queuedNanos = event.getProfilingInfo(CLEvent.ProfilingCommand.QUEUED)
+    val submitNanos = event.getProfilingInfo(CLEvent.ProfilingCommand.SUBMIT)
+    val startNanos = event.getProfilingInfo(CLEvent.ProfilingCommand.START)
+    val endNanos = event.getProfilingInfo(CLEvent.ProfilingCommand.END)
+    val durationUsecs = (endNanos - startNanos) / 1000.0
+    val InsanelyLongTimeUsecs = 10 * 1000000.0
+    if (queuedNanos >= submitNanos ||
+      submitNanos >= startNanos ||
+      startNanos >= endNanos ||
+      durationUsecs > InsanelyLongTimeUsecs) {            // 10 seconds
+      if (queuedNanos >= submitNanos)
+        println("queued->submit = " + (submitNanos - queuedNanos))
+      if (submitNanos >= startNanos)
+        println("submit->start = " + (startNanos - submitNanos))
+      if (startNanos >= endNanos)
+        println("start->end = " + (endNanos - startNanos))
+      println("**********************************************")
+      println("queued =     " + queuedNanos)
+      println("submit =     " + submitNanos)
+      println("startnanos = " + startNanos)
+      println("endnanos =   " + endNanos)
+      println("**********************************************")
+    }
+    if (durationUsecs > 0.0 && durationUsecs <= InsanelyLongTimeUsecs)
+      stats.addSample(durationUsecs)
+    else
+      stats.addOutlier()
   }
 
 

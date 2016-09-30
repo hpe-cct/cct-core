@@ -24,17 +24,19 @@ import cogx.runtime.resources.GPU
 /** Actor which supervises computation of a kernel circuit on a GPU.
   *
   * @param device OpenCL GPU managed by this supervisor.
+  * @param gpu An object that allows late binding of the orderedKernels sequence (for multinode)
+  * @param profileSize How often to print out profiling statistics (0 == never)
   *
   * @author Greg Snider
   */
 private[runtime]
-class GPUSupervisorActor(device: OpenCLDevice, gpu: GPU)
+class GPUSupervisorActor(device: OpenCLDevice, gpu: GPU, profileSize: Int)
   extends Actor
 {
   import SupervisorMessages._
 
   /** Create the non-actor GPUSupervisor that performs all the work. */
-  val gpuSupervisor = new GPUSupervisor(device, gpu)
+  val gpuSupervisor = new GPUSupervisor(device, gpu, profileSize)
 
   /** CPU kernels that need actors for their execution. */
   private val cpuActorKernels: Seq[OpenCLCpuKernel] = {

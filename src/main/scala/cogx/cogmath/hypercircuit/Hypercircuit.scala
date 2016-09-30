@@ -211,7 +211,7 @@ private [cogx] class Hypercircuit[T <: Hypernode[T]] {
 private[cogx] object Hypercircuit {
   /** The "current" circuit being built, each thread getting its own instance starting with null. */
   private val _current =  new ThreadLocal[Hypercircuit[_]]
-  private def current = _current.get()
+  private[cogx] def current = _current.get()
   private def current_=(newCircuit: Hypercircuit[_]) { _current.set(newCircuit) }
 
   /** Add `node` as an element of the current circuit. If no circuit exists,

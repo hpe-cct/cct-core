@@ -19,12 +19,12 @@ package cogx.compiler.codegenerator.opencl.generator
 import cogx.compiler.codegenerator.opencl.hyperkernels.discretecosinetransform.DCT2DHyperKernel
 import cogx.compiler.parser.op._
 import cogx.platform.opencl.OpenCLKernelCodeGenParams
-import cogx.platform.types.{VirtualFieldRegister, ConvolutionSmallTensorUsePolicy, ConvolutionFFTUsePolicy, AbstractKernel}
-import cogx.compiler.parser.op.{BinaryConstOpcode, BinaryOpcode, UnaryOpcode, ConstantOp}
+import cogx.platform.types.{AbstractKernel, ConvolutionFFTUsePolicy, ConvolutionSmallTensorUsePolicy, VirtualFieldRegister}
+import cogx.compiler.parser.op.{BinaryConstOpcode, BinaryOpcode, ConstantOp, UnaryOpcode}
 import cogx.compiler.codegenerator.opencl.cpukernels._
 import cogx.compiler.codegenerator.opencl.hyperkernels._
 import cogx.cogmath.geometry.Shape
-import cogx.compiler.parser.syntaxtree.{RestoreHooks, Field}
+import cogx.compiler.parser.syntaxtree.{Field, RestoreHooks}
 import cogx.compiler.parser.op.DomainTransformRowsOp
 import cogx.compiler.parser.op.ReshapeOp
 import cogx.compiler.parser.op.SliceOp
@@ -48,6 +48,7 @@ import cogx.compiler.parser.op.RandomOp
 import cogx.compiler.parser.op.UserOpcode
 import cogx.compiler.parser.op.TensorStackOp
 import cogx.compiler.codegenerator.opencl.hyperkernels.domaintransform.{TensorDomainFilterRowsHyperKernel, TensorDomainTransformRowsHyperKernel}
+import cogx.runtime.execution.Profiler
 
 /** Generates OpenCL code for operations that produce vector fields.
   *
@@ -62,12 +63,14 @@ object VectorFieldGenerator {
     * @param codeGenParams A bundle of platform parameters that affect kernel code generation and optimization.
     * @param fftUse policy for FFT use in fast convolution.
     * @param smallTensorUse policy for when to use SmallTensorAddressing in convolution.
+    * @param profiler A facility for getting kernel execution times
     * @return OpenCL kernel implementing the operation.
     */
   def apply(field: Field, inputs: Array[VirtualFieldRegister],
             codeGenParams: OpenCLKernelCodeGenParams,
             fftUse: ConvolutionFFTUsePolicy,
-            smallTensorUse: ConvolutionSmallTensorUsePolicy): AbstractKernel =
+            smallTensorUse: ConvolutionSmallTensorUsePolicy,
+            profiler: Profiler): AbstractKernel =
   {
     val opcode = field.opcode
     val fieldType = field.fieldType
@@ -94,6 +97,8 @@ object VectorFieldGenerator {
       // User GPU kernel:
       case op: UserGPUOpcode =>
         UserKernel(op, inputs, fieldType)
+      case op: UserGPUWithVariantsOpcode =>
+        UserWithVariantsKernel(op, inputs, fieldType, profiler)
 
       // DCT
       case DCT2DOp =>

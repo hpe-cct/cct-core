@@ -20,15 +20,18 @@ import scala.collection.mutable.Set
 import com.jogamp.opencl.{CLContext, CLDevice, CLProgram}
 import cogx.utilities.{DeleteDirectory, Timer}
 import cogx.parameters.Cog
+import com.jogamp.common.nio.PointerBuffer
+import com.jogamp.opencl.llb.{CL, CLProgramBinding}
 
 /** An OpenCL program (a collection of separately runnable kernels)
   *
   * @author Greg Snider
   *
   * @param device The wrapped OpenCL device on which this program will be run.
+  * @param profilerUse Should command queues used by this device enable profiling?
   */
 private[cogx]
-class OpenCLProgram(device: OpenCLDevice) {
+class OpenCLProgram(device: OpenCLDevice, profilerUse: Boolean) {
 
   /** The platform of the device. */
   private def platform = device.platform
@@ -61,17 +64,21 @@ class OpenCLProgram(device: OpenCLDevice) {
   /** The built program for this device. */
   private var builtProgram: CLProgram = null
 
+  // Normally we want the output of this class to pertain to the user's model program, not the various
+  // small programs the compile-time Profiler creates.
+  private val silent = profilerUse
+
   /** Compile all source code added using `addKernelSourceCode` into
     * a single CLProgram.
     *
     * @param resourceDescriptor String to tack onto program build messages to indicate model resources.
     */
-  def getProgram(resourceDescriptor: String = ""): CLProgram = {
+  def getProgram(resourceDescriptor: () => String = () => ""): CLProgram = {
     synchronized {
       if (builtProgram == null) {
         val timer = new Timer
-        if (Cog.verboseOpenCLPlatform) {
-          println("OpenCLPlatform.getProgram.  Building source string...")
+        if (Cog.verboseOpenCLPlatform && !silent) {
+          print("OpenCLPlatform.getProgram.  Building source string...")
           timer.start
         }
         //val sourceSet: Set[KernelSourceCode] = sources(device)
@@ -81,10 +88,12 @@ class OpenCLProgram(device: OpenCLDevice) {
           sourceStringBuffer append _
         }
         val sourceString = sourceStringBuffer.toString
-        if (Cog.verboseOpenCLPlatform)
+        if (Cog.verboseOpenCLPlatform && !silent) {
           timer.stop
+          println(s"done (in ${timer.duration} ${timer.units.designator}).")
+        }
 
-        if (Cog.verboseOpenCLPlatform) {
+        if (Cog.verboseOpenCLPlatform && !silent) {
           println("    Building program for " + clContext)
           for (k <- sources) {
             val kernelNames = k.names
@@ -92,16 +101,18 @@ class OpenCLProgram(device: OpenCLDevice) {
           }
           println()
         }
-        if (Cog.printSource)
+        if (Cog.printSource && !silent)
           println(sourceString)
 
-        if (Cog.verboseOpenCLPlatform) {
-          println("    Creating program...")
+        if (Cog.verboseOpenCLPlatform && !silent) {
+          print("    Creating program...")
           timer.start
         }
         val program = clContext.createProgram(sourceString)
-        if (Cog.verboseOpenCLPlatform)
+        if (Cog.verboseOpenCLPlatform && !silent) {
           timer.stop
+          println(s"done (in ${timer.duration} ${timer.units.designator}).")
+        }
         // The register usage for a kernel is present in the build log, but
         // only if the compilation is performed.  NVidia caches kernels it
         // has already compiled (with identical compiler args) under ~/.nv
@@ -112,17 +123,19 @@ class OpenCLProgram(device: OpenCLDevice) {
                   " to force OpenCL kernel compilation.")
           DeleteDirectory(binaryCache)
         }
-        if (device.isNVidia)
+        if (device.isNVidia && Cog.checkForLibjsig)
           OpenCLNvidia.checkEnvironmentVariablesForLD_PRELOAD()
         try {
-          if (Cog.verboseOpenCLPlatform) {
-            println("    Building program...")
+          if (Cog.verboseOpenCLPlatform && !silent) {
+            print("    Building program...")
             timer.start
           }
           program.build(buildOptions, clDevice)
-          if (Cog.verboseOpenCLPlatform)
+          if (Cog.verboseOpenCLPlatform && !silent) {
             timer.stop
-          if (Cog.verboseOpenCLPlatform)
+            println(s"done (in ${timer.duration} ${timer.units.designator}).")
+          }
+          if (Cog.verboseOpenCLPlatform && !silent)
             println("        device " + clDevice + ": "+ sources.size + " unique kernels compiled.")
         } catch {
           case e: Exception =>
@@ -131,7 +144,7 @@ class OpenCLProgram(device: OpenCLDevice) {
             println(e)
             System.exit(1)
         }
-        if (Cog.verboseOpenCLPlatform) {
+        if (Cog.verboseOpenCLPlatform && !silent) {
           System.out.print("    OpenCL program build log ------------------------")
           val buildLog = program.getBuildLog(clDevice)
           if (buildLog == "")
@@ -140,23 +153,51 @@ class OpenCLProgram(device: OpenCLDevice) {
             println(buildLog.replaceAll("\n", "\n      "))
           println("    -------------------------------------------------")
         }
-        if (Cog.verboseOpenCLPlatform)
+        if (Cog.verboseOpenCLPlatform && !silent)
           println()
 
-        if (Cog.printAssembly) {
+        if (Cog.printAssembly && !silent) {
           val ptxAsMapOfByteArrays = program.getBinaries
           val ptxAsCharArray =
             ptxAsMapOfByteArrays.get(clDevice).toArray.map( byte => byte.toChar )
           println(ptxAsCharArray.mkString(""))
         }
 
-        if (Cog.verboseOpenCLResources)
-          print(resourceDescriptor)
+        if (Cog.verboseOpenCLResources && !silent)
+          print(resourceDescriptor())
 
         builtProgram = program
       }
     }
     builtProgram
+  }
+
+  // An abandoned attempt to speed up Profiler program builds by having them occur in parallel.
+  //
+  // The JOCL CLProgram class has a lock that serializes program builds.  This routine
+  // circumvents the lock, but it was found to be no faster.  Perhaps there is further locking
+  // within the NVIDIA driver to protect a compiler that is not thread safe.  Among other issues
+  // would be concurrent modification of the compiler cache.  What might happen if two threads were
+  // asked to compile the same program?
+  //
+  // It does appear that separate processes (under different JVM's) permit concurrent program
+  // building. The thought then would be to have a multi-process compiler server that could populate
+  // the NVIDIA cache prior to a main thread re-doing all the compilations (which would then hit
+  // in the cache for a significant speed-up).
+
+  /** Compile the OpenCL program in a manner that bypasses the JOCL serialization of such compiles. */
+  private def unsafeBuild(clProgram: CLProgram, buildOptions: String, clDevice: CLDevice): Unit = {
+    val bindingsField = classOf[CLProgram].getDeclaredField("binding")
+    bindingsField.setAccessible(true)
+    val binding = bindingsField.get(clProgram).asInstanceOf[CLProgramBinding]
+    var ret: Int = 0
+    val ID = clProgram.getID()
+    val deviceIDs = PointerBuffer.allocateDirect(1)
+    deviceIDs.put(0, clDevice.getID())
+    deviceIDs.rewind()
+    ret = binding.clBuildProgram(ID, 1, deviceIDs, buildOptions, null)
+    if (ret != CL.CL_SUCCESS)
+      throw new RuntimeException("Program build fails")
   }
 
   /** Make a KernelSourceCode object for this kernel code string and add it to the program

@@ -20,10 +20,10 @@ import cogx.compiler.codegenerator.opencl.hyperkernels.discretecosinetransform.D
 import cogx.compiler.parser.op._
 import cogx.compiler.codegenerator.opencl.hyperkernels._
 import cogx.platform.opencl.OpenCLKernelCodeGenParams
-import cogx.platform.types.{VirtualFieldRegister, ConvolutionSmallTensorUsePolicy, ConvolutionFFTUsePolicy, AbstractKernel}
+import cogx.platform.types.{AbstractKernel, ConvolutionFFTUsePolicy, ConvolutionSmallTensorUsePolicy, VirtualFieldRegister}
 import cogx.compiler.codegenerator.opencl.cpukernels._
 import cogx.compiler.codegenerator.common.FieldPolicies._
-import cogx.compiler.parser.syntaxtree.{RestoreHooks, Field}
+import cogx.compiler.parser.syntaxtree.{Field, RestoreHooks}
 import cogx.compiler.parser.op.ReshapeOp
 import cogx.compiler.parser.op.SliceOp
 import cogx.compiler.parser.op.DownsampleOp
@@ -40,7 +40,8 @@ import cogx.compiler.parser.op.SubfieldOp
 import cogx.compiler.parser.op.LocalMax2DOp
 import cogx.compiler.parser.op.UserOpcode
 import cogx.compiler.parser.op.LocalMin2DOp
-import cogx.compiler.codegenerator.opencl.hyperkernels.domaintransform.{TensorDomainFilterRowsHyperKernel, TensorDomainTransformRowsHyperKernel, ColorDomainTransformRowsHyperKernel, ColorDomainFilterRowsHyperKernel}
+import cogx.compiler.codegenerator.opencl.hyperkernels.domaintransform.{ColorDomainFilterRowsHyperKernel, ColorDomainTransformRowsHyperKernel, TensorDomainFilterRowsHyperKernel, TensorDomainTransformRowsHyperKernel}
+import cogx.runtime.execution.Profiler
 
 /** Generates OpenCL code for operations that produce scalar fields.
   *
@@ -52,15 +53,17 @@ object ScalarFieldGenerator {
     *
     * @param field The field which will have a kernel generated for it.
     * @param inputs Inputs to the operation.
-    * @param platformParams A bundle of platform parameters that affect kernel code generation and optimization.
+    * @param codeGenParams A bundle of platform parameters that affect kernel code generation and optimization.
     * @param fftUse policy for FFT use in fast convolution.
     * @param smallTensorUse policy for when to use SmallTensorAddressing in convolution.
+    * @param profiler A facility for getting kernel execution times
     * @return OpenCL kernel implementing the operation.
     */
   def apply(field: Field, inputs: Array[VirtualFieldRegister],
-            platformParams: OpenCLKernelCodeGenParams,
+            codeGenParams: OpenCLKernelCodeGenParams,
             fftUse: ConvolutionFFTUsePolicy,
-            smallTensorUse: ConvolutionSmallTensorUsePolicy): AbstractKernel =
+            smallTensorUse: ConvolutionSmallTensorUsePolicy,
+            profiler: Profiler): AbstractKernel =
   {
     val opcode = field.opcode
     val fieldType = field.fieldType
@@ -86,6 +89,8 @@ object ScalarFieldGenerator {
       // User GPU kernel:
       case op: UserGPUOpcode =>
         UserKernel(op, inputs, fieldType)
+      case op: UserGPUWithVariantsOpcode =>
+        UserWithVariantsKernel(op, inputs, fieldType, profiler)
 
       // DCT
       case DCT2DOp =>
@@ -114,24 +119,24 @@ object ScalarFieldGenerator {
         else
           TensorDomainFilterRowsHyperKernel(inputs, DomainFilterRowsOp, fieldType)
       case FieldReduceMaxOp =>
-        ScalarReduceHyperKernel(inputs(0), opcode, fieldType, platformParams.warpSize)
+        ScalarReduceHyperKernel(inputs(0), opcode, fieldType, codeGenParams.warpSize)
       case FieldReduceMinOp =>
-        ScalarReduceHyperKernel(inputs(0), opcode, fieldType, platformParams.warpSize)
+        ScalarReduceHyperKernel(inputs(0), opcode, fieldType, codeGenParams.warpSize)
       case FieldReduceSumOp =>
-        ScalarReduceHyperKernel(inputs(0), opcode, fieldType, platformParams.warpSize)
+        ScalarReduceHyperKernel(inputs(0), opcode, fieldType, codeGenParams.warpSize)
       case FieldReduceMedianOp =>
         CPUScalarReduceMedianKernel(inputs(0), opcode, fieldType)
       case FlipOp =>
         FlipHyperKernel(inputs, opcode, fieldType)
       case NormalizeL1Op =>
-        val sum = ScalarReduceHyperKernel(inputs(0), FieldReduceSumOp, to0D(fieldType), platformParams.warpSize)
+        val sum = ScalarReduceHyperKernel(inputs(0), FieldReduceSumOp, to0D(fieldType), codeGenParams.warpSize)
         BinaryHyperKernel(Array(inputs(0), sum.outputs(0)), DivideOp, fieldType)
       case NormalizeL2Op =>
         val squared = BinaryHyperKernel(Array(inputs(0), inputs(0)), MultiplyOp, fieldType)
-        val sumSquared = ScalarReduceHyperKernel(squared.outputs(0), FieldReduceSumOp, to0D(fieldType), platformParams.warpSize)
+        val sumSquared = ScalarReduceHyperKernel(squared.outputs(0), FieldReduceSumOp, to0D(fieldType), codeGenParams.warpSize)
         BinaryHyperKernel(Array(inputs(0), sumSquared.outputs(0)), DivideOp, fieldType)
       case WinnerTakeAllOp =>
-        WinnerTakeAllHyperKernel(inputs(0), WinnerTakeAllOp, fieldType, platformParams.warpSize)
+        WinnerTakeAllHyperKernel(inputs(0), WinnerTakeAllOp, fieldType, codeGenParams.warpSize)
       case op: TrimOp =>
         TrimHyperKernel(inputs, op, fieldType)
       case TensorDotOp =>
@@ -151,9 +156,9 @@ object ScalarFieldGenerator {
       case op: ConvolveTiledOp =>
         ConvolveTiledHyperKernel(inputs, op, fieldType)
       case op: ConvolveToSmallFieldTiledOp =>
-        ConvolveToSmallFieldPipelinedTiledHyperKernel(inputs, op, fieldType, platformParams)
+        ConvolveToSmallFieldPipelinedTiledHyperKernel(inputs, op, fieldType, codeGenParams)
       case op: ConvolveOp =>
-        DynamicConvolutionGenerator(inputs, op, fieldType, fftUse, smallTensorUse, platformParams)
+        DynamicConvolutionGenerator(inputs, op, fieldType, fftUse, smallTensorUse, codeGenParams)
       case op: ComplexToRealOp =>
         ComplexToRealHyperKernel(inputs, op, fieldType)
       case DownsampleOp(factor, phase) =>

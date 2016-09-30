@@ -62,23 +62,23 @@ class ColorDomainFilterHyperKernel private[hyperkernels] (
   // column) of the image, with one thread for each pixel in the line.
   override lazy val workGroup =
     if (filterRows)
-      new WorkGroupParameters(2) {
-        localLayers  = 1
-        localRows    = 1
+      new WorkGroupParameters(2,
+        globalLayers  = 1,
+        globalRows    = rows,
+        globalColumns = columns,
+        localLayers  = 1,
+        localRows    = 1,
         localColumns = columns
-        globalLayers  = 1
-        globalRows    = rows
-        globalColumns = columns
-      }
+      )
     else
-      new WorkGroupParameters(2) {
-        localLayers  = 1
-        localRows    = rows
+      new WorkGroupParameters(2,
+        globalLayers  = 1,
+        globalRows    = rows,
+        globalColumns = columns,
+        localLayers  = 1,
+        localRows    = rows,
         localColumns = 1
-        globalLayers  = 1
-        globalRows    = rows
-        globalColumns = columns
-      }
+      )
 
   // Parameters for kernel.
   val lineIndex = if (filterRows) "_column" else "_row"

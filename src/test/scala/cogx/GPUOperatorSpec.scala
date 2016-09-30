@@ -21,8 +21,11 @@ import org.scalatest.FunSuite
 import org.scalatest.MustMatchers
 import org.junit.runner.RunWith
 import api.ImplicitConversions
+import cogx.compiler.codegenerator.opencl.generator.UserWithVariantsKernel
 import cogx.helper.{ColorFieldBuilderInterface, ScalarFieldBuilderInterface}
+import cogx.platform.opencl.OpenCLPlatform
 import cogx.reference.RefTestInterface
+import cogx.runtime.allocation.AllocationMode
 
 import scala.concurrent.duration._
 import scala.concurrent.{Await, Future}
@@ -212,7 +215,7 @@ class GPUOperatorSpec
     }
   }
 
-  /** small tensor: multiply field by -1 */
+  /** small tensor: add a constant to a field */
   def addConst(f: Field, aFloat: Float): Field = {
     GPUOperator(f.fieldType) {
       val x = _tensorVar(f)
@@ -303,12 +306,6 @@ class GPUOperatorSpec
       require(readScalar(sUserTransposed) == readScalar(sSystemTransposed))
       require(readVector(vUserTransposed) == readVector(vSystemTransposed))
       require(readMatrix(mUserTransposed) == readMatrix(mSystemTransposed))
-//      println("original")
-//      readColor(c).print
-//      println("user")
-//      readColor(cUserTransposed).print
-//      println("system")
-//      readColor(cSystemTransposed).print
       require(readColor(cUserTransposed) == readColor(cSystemTransposed))
     }
   }
@@ -335,7 +332,6 @@ class GPUOperatorSpec
       require(readScalar(s) == readScalar(sDoubleTransposed))
       require(readVector(v) == readVector(vDoubleTransposed))
       require(readMatrix(m) == readMatrix(mDoubleTransposed))
-      println("original")
     }
   }
 
@@ -1404,6 +1400,421 @@ class GPUOperatorSpec
     println(s"Waiting for $numTests concurrent tests to finish.")
     runners.foreach(runner => Await.result(runner, 60 seconds))
     println(s"All $numTests concurrent tests have finished.")
+  }
+
+  // Test of GPUOperatorWithVariants
+
+  /** Test GPUOperator with variants. */
+  test("GPUOperator with variants.") {
+    def test(variantToForce: Int, numVariants: Int) {
+      // Variants differ in the constant they add to the input field
+      def addConstWithVariants(numVariants: Int, f: Field): Field = {
+        val variants = 0 until numVariants
+        val names = variants.map(x => s"addConst_variant_${x}_of_$numVariants").toArray
+        GPUOperator(f.fieldType, names) { i =>
+          val x = _tensorVar(f)
+          x := _readTensor(f) + i
+          _writeTensor(_out0, x)
+        }
+      }
+      val oldForceIndex = UserWithVariantsKernel.forceVariantSelection
+      val graph = new ComputeGraph(Optimize) with RefTestInterface {
+        val inA = ScalarField.random(10,10)
+        val outA = addConstWithVariants(numVariants, inA)
+        probe(outA, inA)
+      }
+      import graph._
+      try {
+        UserWithVariantsKernel.forceVariantSelection = variantToForce
+        step
+        require(readScalar(outA) == (readScalar(inA) + variantToForce))
+      }
+      finally {
+        UserWithVariantsKernel.forceVariantSelection = oldForceIndex
+        release
+      }
+    }
+    test(0, 2)
+    test(1, 2)
+    test(2, 3)
+  }
+
+  /** Test GPUOperator with variants, where the variants access their inputs in a different order. */
+  test("GPUOperator with variants that access their inputs in a different order.") {
+    // Variants differ in the order they access their inputs (although the set of inputs is the same).
+    def test(variantToForce: Int) {
+      def aPlusTwoBWithVariants(fA: Field, fB: Field): Field = {
+        val variants = 0 until 2
+        val names = variants.map(x => s"aPlusTwoB_variant_${x}_of_2").toArray
+        GPUOperator(fA.fieldType, names) { i =>
+          val x = _tensorVar(fA)
+          i match {
+            case 0 => x := _readTensor(fA) + 2 * _readTensor(fB)
+            case 1 => x :=  2 * _readTensor(fB) + _readTensor(fA)
+            case _ => throw new RuntimeException("Unexpected variant requested")
+          }
+          _writeTensor(_out0, x)
+        }
+      }
+      val oldForceIndex = UserWithVariantsKernel.forceVariantSelection
+      val graph = new ComputeGraph(Optimize) with RefTestInterface {
+        val inA = ScalarField.random(10,10)
+        val inB = ScalarField.random(10,10)
+        val outA = aPlusTwoBWithVariants(inA, inB)
+        probe(outA, inA, inB)
+      }
+      import graph._
+      try {
+        UserWithVariantsKernel.forceVariantSelection = variantToForce
+        step
+        require(readScalar(outA) == readScalar(inA) + readScalar(inB) * 2)
+      }
+      finally {
+        UserWithVariantsKernel.forceVariantSelection = oldForceIndex
+        release
+      }
+    }
+    test(0)
+    test(1)
+  }
+
+  /** Test GPUOperator with variants, where the variants have a different threading model. */
+  test("GPUOperator with variants that have a different threading structure.") {
+    // Variants differ in the addressing mode (also functionality to aid checking)
+    def test(variantToForce: Int) {
+      def addAndDoubleOneInput(fA: Field, fB: Field): Field = {
+        val variants = 0 until 2
+        val names = variants.map(x => s"addAndDoubleOneInput_variant_${x}_of_2").toArray
+        GPUOperator(fA.fieldType, names) { i =>
+          i match {
+            case 0 =>
+              _writeTensor(_out0, _readTensor(fA) + _readTensor(fB) * 2f)
+            case 1 =>
+              _globalThreads(fA.fieldShape, fA.tensorShape)
+              val a = _readTensorElement(fA, _tensorElement)
+              val b = _readTensorElement(fB, _tensorElement)
+              _writeTensorElement(_out0, a * 2f + b, _tensorElement)
+            case _ => throw new RuntimeException("Unexpected variant requested")
+          }
+        }
+      }
+      val oldForceIndex = UserWithVariantsKernel.forceVariantSelection
+      val graph = new ComputeGraph(Optimize) with RefTestInterface {
+        val inA = VectorField.random(Shape(10,10), Shape(4))
+        val inB = VectorField.random(Shape(10,10), Shape(4))
+        val outA = addAndDoubleOneInput(inA, inB)
+        probe(outA, inA, inB)
+      }
+      import graph._
+      try {
+        UserWithVariantsKernel.forceVariantSelection = variantToForce
+        step
+        variantToForce match {
+          case 0 => require(readVector(outA) == readVector(inA) + readVector(inB) * 2)
+          case 1 => require(readVector(outA) == readVector(inA)* 2 + readVector(inB))
+          case _ => throw new RuntimeException("Unexpected variant requested")
+        }
+      }
+      finally {
+        UserWithVariantsKernel.forceVariantSelection = oldForceIndex
+        release
+      }
+    }
+    test(0)
+    test(1)
+  }
+
+  /** Test GPUOperator with variants, where the variants access a different set of inputs. */
+  test("GPUOperator with variants that access a different set of inputs.") {
+    // Variants differ in the set of inputs they access.
+    // The kernels created will have an input set that is the union of all inputs accessed.
+    // As a result, a kernel may have unreferenced field input parameters.  This will not affect
+    // functionality, or performance significantly.  It requires the unused input buffer be
+    // preserved, perhaps longer than necessary, so the only impact is on buffer sharing.
+    def test(variantToForce: Int) {
+      def addTwoOfThreeWithVariants(fA: Field, fB: Field, fC: Field): Field = {
+        val variants = 0 until 2
+        val names = variants.map(x => s"addTwoOfThree_variant_${x}_of_2").toArray
+        GPUOperator(fA.fieldType, names) { i =>
+          val x = _tensorVar(fA)
+          i match {
+            case 0 => x := _readTensor(fA) + _readTensor(fB)
+            case 1 => x := _readTensor(fB) + _readTensor(fC)
+            case _ => throw new RuntimeException("Unexpected variant requested")
+          }
+          _writeTensor(_out0, x)
+        }
+      }
+      val oldForceIndex = UserWithVariantsKernel.forceVariantSelection
+      val graph = new ComputeGraph(Optimize) with RefTestInterface {
+        val inA = VectorField.random(Shape(10,10), Shape(4))
+        val inB = VectorField.random(Shape(10,10), Shape(4))
+        val inC = VectorField.random(Shape(10,10), Shape(4))
+        val outA = addTwoOfThreeWithVariants(inA, inB, inC)
+        probe(outA, inA, inB, inC)
+      }
+      import graph._
+      try {
+        UserWithVariantsKernel.forceVariantSelection = variantToForce
+        step
+        variantToForce match {
+          case 0 => require(readVector(outA) == readVector(inA) + readVector(inB))
+          case 1 => require(readVector(outA) == readVector(inB) + readVector(inC))
+          case _ => throw new RuntimeException("Unexpected variant requested")
+        }
+      }
+      finally {
+        UserWithVariantsKernel.forceVariantSelection = oldForceIndex
+        release
+      }
+    }
+    test(0)
+    test(1)
+  }
+
+  /** Test GPUOperator with variants, where the variant is selected by a Profiler. */
+  test("GPUOperator with variants, selected by profiler.") {
+    // Variants differ in the addressing mode (also functionality to aid checking)
+    def test {
+      def addAndDoubleOneInput(fA: Field, fB: Field): Field = {
+        val variants = 0 until 2
+        val names = variants.map(x => s"addAndDoubleOneInput_variant_${x}_of_2").toArray
+        GPUOperator(fA.fieldType, names) { i =>
+          i match {
+            case 0 =>
+              _writeTensor(_out0, _readTensor(fA) + _readTensor(fB) * 2f)
+            case 1 =>
+              _globalThreads(fA.fieldShape, fA.tensorShape)
+              val a = _readTensorElement(fA, _tensorElement)
+              val b = _readTensorElement(fB, _tensorElement)
+              _writeTensorElement(_out0, a * 2f + b, _tensorElement)
+            case _ => throw new RuntimeException("Unexpected variant requested")
+          }
+        }
+      }
+      val graph = new ComputeGraph(Optimize, forceProfiling = true) with RefTestInterface {
+        val inA = VectorField.random(Shape(10,10), Shape(4))
+        val inB = VectorField.random(Shape(10,10), Shape(4))
+        val outA = addAndDoubleOneInput(inA, inB)
+        probe(outA, inA, inB)
+      }
+      import graph._
+      try {
+        step
+        require(readVector(outA) == readVector(inA) + readVector(inB) * 2 ||
+                readVector(outA) == readVector(inA)* 2 + readVector(inB))
+      }
+      finally {
+        release
+      }
+    }
+    test
+  }
+
+  /** Test GPUOperator with variants, where the variants have a different threading model. */
+  test("GPUOperator with slow/fast variants, fast selected by profiler.") {
+    // Variants differ in the addressing mode (also functionality to aid checking)
+    def test {
+      def slowOrFast(f: Field): Field = {
+        val variants = Array("slow", "fast")
+        val names = variants.map(x => s"dual_personality_variant_$x")
+        GPUOperator(f.fieldType, names) { i =>
+          variants(i) match {
+            case "slow" =>
+              // A compute-intensive kernel with little I/O
+              val x = _tensorVar(f)
+              x := _readTensor(f)
+              var result = _floatVar()
+              result = x
+              val i = _intVar()
+              _for(i := 0, i < 10000, i += 1) {
+                result *= result + 0.00001f
+                result := _sqrt(result)
+              }
+              _writeTensor(_out0, result)
+            case "fast" =>
+              // Simple fast doubler
+              _writeTensor(_out0, _readTensor(f) * 2f)
+          }
+        }
+      }
+      val graph = new ComputeGraph(Optimize, forceProfiling = true) with RefTestInterface {
+        val in = ScalarField.random(Shape(256,256))
+        val out = slowOrFast(in)
+        probe(out, in)
+      }
+      import graph._
+      try {
+        step
+        require(readScalar(out) == readScalar(in) * 2f)
+      }
+      finally {
+        release
+      }
+    }
+    test
+  }
+
+  /** Test GPUOperator with variants, where the variants have a different threading model. */
+  test("GPUOperator with slow/fast variants, multiple different instances.") {
+    // Variants differ in the addressing mode (also functionality to aid checking).
+    // NumCopies determines how many instances of the GPUOperator are in the ComputeGraph
+    def test(numCopies: Int, forceProfiling: Boolean) {
+      def slowOrFastMultiplier(f: Field, factor: Float): Field = {
+        val variants = Array("slow", "fast")
+        val names = variants.map(x => s"dual_personality_variant_$x")
+        GPUOperator(f.fieldType, names) { i =>
+          variants(i) match {
+            case "slow" =>
+              // A compute-intensive kernel with little I/O
+              val x = _tensorVar(f)
+              x := _readTensor(f)
+              var result = _floatVar()
+              result = x
+              val i = _intVar()
+              _for(i := 0, i < 10000, i += 1) {
+                result *= result + 0.00001f
+                result := _sqrt(result)
+              }
+              _writeTensor(_out0, result)
+            case "fast" =>
+              // Simple fast doubler
+              _writeTensor(_out0, _readTensor(f) * factor)
+          }
+        }
+      }
+      val graph = new ComputeGraph(Optimize, forceProfiling = forceProfiling) with RefTestInterface {
+        val inA = ScalarField.random(Shape(256,256))
+        val out = Array.tabulate(numCopies) { i =>
+          slowOrFastMultiplier(inA, 1f + i)
+        }
+        probe(out: _*)
+        probe(inA)
+      }
+      import graph._
+      try {
+        step
+        for (i <- 0 until numCopies)
+          require(readScalar(out(i)) ~== readScalar(inA) * (i + 1f))
+      }
+      finally {
+        release
+      }
+    }
+    // Parameter is how many instances of the GPUOperator are in the ComputeGraph
+    test(2, true)
+    test(10, true)
+    test(40, true)
+    test(2, false)
+    test(10, false)
+    test(40, false)
+  }
+
+  /** Test GPUOperator with variants.  This will exhaust GPU global mem without Profiler releasing. */
+  test("GPUOperator with variants, confirms release of Profiler GPU resources.") {
+    // Create a ComputeGraph with N GPUOperators instances having an output of size B.
+    // The GPUOperator has V variants that will be tested by the Profiler.  If the Profiler
+    // is not releasing resources, then it will consume N*V*B memory.  Each GPUOperator
+    // evaluation by the Profiler consumes V*B memory.  The final instantiated ComputeGraph
+    // consumes (N+1)*B memory.  The idea is to have:
+    //
+    // N*V*B > GPU global memory
+    //
+    // V*B   < GPU global memory           // So single profiler evaluation can run
+    //
+    // N*B   < GPU global memory           // So final ComputeGraph fits
+
+
+    // NumCopies determines how many instances of the GPUOperator are in the ComputeGraph
+    def test(deviceIndex: Int, numCopies: Int, numVariants: Int, sizeBytes: Long, forceProfiling: Boolean) {
+      def manyVariants(f: Field, copyId: Int): Field = {
+        val names = Array.tabulate(numVariants)(i => s"manyVariants_${i}_of_$numVariants")
+        GPUOperator(f.fieldType, names) { i =>
+          _writeTensor(_out0, _readTensor(f) * (copyId * numVariants + i).toFloat)
+        }
+      }
+      val fieldElements = (sizeBytes/4).toInt
+      val graph = new ComputeGraph(Optimize, forceProfiling = forceProfiling) with RefTestInterface {
+        val inA = ScalarField(Shape(fieldElements))
+        val out = Array.tabulate(numCopies) { i =>
+          manyVariants(inA, i)
+        }
+        probe(out: _*)
+        probe(inA)
+      }
+      import graph._
+      try {
+        step
+      }
+      finally {
+        release
+      }
+    }
+
+    val deviceIndex = AllocationMode.default match {
+      case AllocationMode.SingleGPU(device) => device
+      case _ => 0
+    }
+
+    def sizeToMB(size: Long) = s"${size/1024/1024} MB"
+
+    val device = OpenCLPlatform().devices(deviceIndex)
+    val deviceGlobalMemory = device.globalMemSize
+    // Design the test to use 2X global memory if the memory is not released.
+    // We'll create a ComputeGraph to make `CopyFactor` GPUOperator instances,
+    // each with `CopyFactor` variants.
+
+    val shouldntFitSize = (2.0 * deviceGlobalMemory).toLong
+    val desiredCopyFactor = 20
+
+    val desiredAllocSize = shouldntFitSize / (desiredCopyFactor * desiredCopyFactor)
+
+    val (bufAllocSize, copyFactor) =
+      if (desiredAllocSize < device.maxMemAllocSize)
+        (desiredAllocSize, desiredCopyFactor)
+      else {
+        val allocSize = device.maxMemAllocSize / 2
+        val copyFactor = Math.sqrt(shouldntFitSize / allocSize).toInt
+        (allocSize, copyFactor)
+      }
+    println(s"Creating a ComputeGraph with $copyFactor GPUOperators, each with output size ${sizeToMB(bufAllocSize)} and $copyFactor variants.")
+
+    // Parameter is how many instances of the GPUOperator are in the ComputeGraph
+    test(deviceIndex, copyFactor, copyFactor, bufAllocSize, true)
+    test(deviceIndex, copyFactor, copyFactor, bufAllocSize, false)
+  }
+
+  /** Test GPUOperator with variants, requires Profiler cache to be enabled and working. */
+  test("GPUOperator with variants, tests cacheing of profiled kernel stats.") {
+    def test(numVariants: Int) {
+      // Variants differ in the constant they add to the input field
+      def addConstWithVariants(numVariants: Int, f: Field): Field = {
+        val variants = 0 until numVariants
+        val names = variants.map(x => s"addConst_variant_${x}_of_$numVariants").toArray
+        GPUOperator(f.fieldType, names) { i =>
+          val x = _tensorVar(f)
+          x := _readTensor(f) + i
+          _writeTensor(_out0, x)
+        }
+      }
+      // Test would fail if forceProfiling is true since outA and outB would likely be generated by different variants.
+      val graph = new ComputeGraph(Optimize, forceProfiling = false) with RefTestInterface {
+        val inA = ScalarField.random(10,10)
+        val outA = addConstWithVariants(numVariants, inA) + 2f
+        val outB = addConstWithVariants(numVariants, inA + 2f)
+        probe(outA, outB)
+      }
+      import graph._
+      try {
+        step
+        // Same variant should be selected, so outputs should match
+        require(readScalar(outA) ~== readScalar(outB))
+      }
+      finally {
+        release
+      }
+    }
+    test(50)
   }
 
   /*
