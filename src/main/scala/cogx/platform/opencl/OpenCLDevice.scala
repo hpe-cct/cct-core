@@ -82,14 +82,24 @@ class OpenCLDevice private[opencl](val clDevice: CLDevice,
   /** A unique object for the Device under this JVM. Better than using the device index because of possible filtering. */
   val lock = Symbol(clDevice.getID().toString())
 
+  /** Strip name of extra non-identifying words. */
+  private def cleanName(name: String) = name.replace(" Corporation", "").replace(", Inc.", "").replace("(R)", "")
+
   /** The manufacturer of the device, with some attempt to remove uninteresting bits. */
-  def vendor: String = clDevice.getVendor().stripSuffix(" Corporation").stripSuffix(", Inc.")
+  def vendor: String = cleanName(clDevice.getVendor())
 
   /** The name of the device. */
-  def name: String = clDevice.getName()
+  def name: String = cleanName(clDevice.getName())
 
-  /** The name of the device. */
-  def fullNameNoSpaces: String = s"$vendor $name".replace(' ', '_')
+  /** The name of the device with the vendor name added (if absent), suitable for the name of the Profiler cache file. */
+  def fullNameNoSpaces: String = {
+    val unsanitized =
+      if (name.startsWith(vendor))
+        name
+      else
+        s"$vendor $name"
+    unsanitized.replaceAll("[^A-Za-z0-9]", "_")
+  }
 
   /** Return true if this is an NVidia OpenCL platform. */
   def isNVidia =
