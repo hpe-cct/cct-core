@@ -16,6 +16,9 @@
 
 package cogx.runtime.execution
 
+import java.time.{Instant, LocalDateTime, ZoneId}
+import java.time.format.DateTimeFormatter
+
 import akka.actor.{ActorSystem, TypedActor, TypedProps}
 import cogx.cogmath.geometry.Shape
 import cogx.cogmath.hypercircuit.Hypercircuit
@@ -70,7 +73,7 @@ class Profiler(platform: OpenCLPlatform, mode: AllocationMode, actorSystem: Acto
     * @param runSteps The number of steps to execute while accumulating runtime statistics.
     * @return The execution time of the circuit created by `circuitMaker`, wrapped with other info in a `ProfileSample`.
     */
-  def profile(inputFieldTypes: Array[FieldType], circuitMaker: (Array[VirtualFieldRegister]) => Unit,
+  private def profile(inputFieldTypes: Array[FieldType], circuitMaker: (Array[VirtualFieldRegister]) => Unit,
               warmupSteps: Int = Cog.profilerWarmupSteps, runSteps: Int = Cog.profilerSteps): ProfileSample = {
 
     // Save away the primary circuit the generators are building.  The profiler makes its own circuit on the side.
@@ -124,6 +127,63 @@ class Profiler(platform: OpenCLPlatform, mode: AllocationMode, actorSystem: Acto
       Hypercircuit.setCurrent(mainCircuit)
   }
 
+  // Profile each variant with the Profiler and return the index of the fastest.
+  def bestVariant(experimentName: String,
+                          variantNames: Array[String],
+                          variantGenerator: (Int) => (Array[VirtualFieldRegister]) => Unit,
+                          inputs: Array[VirtualFieldRegister],
+                          resultTypes: Array[FieldType]): Int = {
+    val inputFieldTypes = inputs.map(_.fieldType)
+    val numVariants = variantNames.length
+
+    // Don't bother to profile a variant if it's the only one.
+    if (numVariants == 1)
+      return 0
+
+    val start = System.nanoTime()
+    // We always need to print something, since profiling can stretch the 1st-time compile to minutes
+    // and we don't want the user to think the compiler is wedged.
+    print(s"Profiling $experimentName: ")
+
+    // For each opcode, get a profiling 'sample' of its execution time
+    val variantProfileSamples = Array.tabulate(numVariants) { i =>
+      profile(inputFieldTypes, variantGenerator(i))
+    }
+    // Pick the fastest variant
+    val bestVariant = variantProfileSamples.zipWithIndex.reduceLeft( (a,b) => if (a._1.avgStepTimeUsec < b._1.avgStepTimeUsec) a else b)._2
+
+    // Print details about the sample if it was performed earlier (i.e. the sample came from the cache).
+    def printSample(sample: ProfileSample, selected: String, nameSuffix: String): Unit = {
+      print(f"  ${sample.avgStepTimeUsec}%9.1f uSec $selected$nameSuffix")
+      if (sample.fromCache) {
+        val dateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+        val dateTime: LocalDateTime =
+          LocalDateTime.ofInstant(Instant.ofEpochMilli(sample.creationTimeMsec), ZoneId.systemDefault())
+        val prettyDate = dateTime.format(dateTimeFormatter)
+        val warmupSteps = sample.warmupSteps
+        val runSteps = sample.runSteps
+        println(s", profiled $prettyDate with (warm-up,run) steps = ($warmupSteps, $runSteps).")
+      }
+      else
+        println
+    }
+
+    // Print out information about the profiling process.
+    if (Cog.verboseProfiler) {
+      println
+      for (i <- 0 until numVariants) {
+        val selected = if (i == bestVariant) "* " else "  "
+        printSample(variantProfileSamples(i), selected, variantNames(i))
+      }
+      val durationUsec = (System.nanoTime() - start) / 1000
+      println(s"Variant selection took $durationUsec uSec.")
+      println
+    }
+    else
+      printSample(variantProfileSamples(bestVariant), "", variantNames(bestVariant))
+
+    bestVariant
+  }
   /** Creates the circuit-driving input kernels and L2-cache-flushing kernel to surround a KernelCircuit completed
     * by the provided `circuitMaker` routine, which is given a set of inputs.  This routine then runs the completed
     * KernelCircuit for `runSteps` steps, after a warmup of `warmupSteps` steps.  The result is passed back as a

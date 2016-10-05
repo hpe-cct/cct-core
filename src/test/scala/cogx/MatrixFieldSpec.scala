@@ -1455,6 +1455,8 @@ class MatrixFieldSpec extends FunSuite with MustMatchers
 
   test("0D matrix field / 0D matrix field transform") {
 
+    // TODO: Now that the 0D matrix multiply is auto-tuned, we should test all variants.
+
     def runTest(matrix1Rows: Int, matrix1Columns: Int, matrix2Columns: Int, simpleData: Boolean): Unit = {
 
       def initData1(r: Int, c: Int) = if (simpleData) 1f else (r + 2 * c).toFloat

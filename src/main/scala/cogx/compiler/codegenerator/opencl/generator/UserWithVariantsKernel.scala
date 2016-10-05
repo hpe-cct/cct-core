@@ -50,67 +50,16 @@ object UserWithVariantsKernel {
     val opcodeIndex =
       if (forceVariantSelection != -1)
         forceVariantSelection
-      else if (_opcode.variantOpcodes.length == 1)
-        0
-      else
-        bestVariant(_opcode, inputs, resultTypes, profiler)
+      else {
+        val experimentName = _opcode.name
+        val variantNames = _opcode.variantOpcodes.map(_.nameSuffix)
+        def variantGenerator(i: Int)(inputs: Array[VirtualFieldRegister]): Unit = {
+          UserKernel(_opcode.variantOpcodes(i), inputs, resultTypes)
+        }
+        profiler.bestVariant(experimentName, variantNames, variantGenerator, inputs, resultTypes)
+      }
 
     UserKernel(_opcode.variantOpcodes(opcodeIndex), inputs, resultTypes)
-  }
-
-  // Profile each variant with the Profiler and return the index of the fastest.
-  private def bestVariant(_opcode: UserGPUWithVariantsOpcode,
-                               inputs: Array[VirtualFieldRegister],
-                               resultTypes: Array[FieldType],
-                               profiler: Profiler): Int = {
-    val inputFieldTypes = inputs.map(_.fieldType)
-    val numVariants = _opcode.variantOpcodes.length
-
-    val start = System.nanoTime()
-    // We always need to print something, since profiling can stretch the 1st-time compile to minutes
-    // and we don't want the user to think the compiler is wedged.
-    print(s"Profiling ${_opcode.name}: ")
-
-    // For each opcode, get a profiling 'sample' of its execution time
-    val variantProfileSamples = _opcode.variantOpcodes.map( opcode =>
-      profiler.profile(inputFieldTypes,
-        (inputRegisters) => { UserKernel(opcode, inputRegisters, resultTypes) }
-      )
-    )
-    // Pick the fastest variant
-    val bestVariant = variantProfileSamples.zipWithIndex.reduceLeft( (a,b) => if (a._1.avgStepTimeUsec < b._1.avgStepTimeUsec) a else b)._2
-
-    // Print details about the sample if it was performed earlier (i.e. the sample came from the cache).
-    def printSample(sample: ProfileSample, selected: String, nameSuffix: String): Unit = {
-      print(f"  ${sample.avgStepTimeUsec}%9.1f uSec $selected$nameSuffix")
-      if (sample.fromCache) {
-        val dateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
-        val dateTime: LocalDateTime =
-          LocalDateTime.ofInstant(Instant.ofEpochMilli(sample.creationTimeMsec), ZoneId.systemDefault())
-        val prettyDate = dateTime.format(dateTimeFormatter)
-        val warmupSteps = sample.warmupSteps
-        val runSteps = sample.runSteps
-        println(s", profiled $prettyDate with (warm-up,run) steps = ($warmupSteps, $runSteps).")
-      }
-      else
-        println
-    }
-
-    // Print out information about the profiling process.
-    if (Cog.verboseProfiler) {
-      println
-      for (i <- 0 until numVariants) {
-        val selected = if (i == bestVariant) "* " else "  "
-        printSample(variantProfileSamples(i), selected, _opcode.variantOpcodes(i).nameSuffix)
-      }
-      val durationUsec = (System.nanoTime() - start) / 1000
-      println(s"Variant selection took $durationUsec uSec.")
-      println
-    }
-    else
-      printSample(variantProfileSamples(bestVariant), "", _opcode.variantOpcodes(bestVariant).nameSuffix)
-
-    bestVariant
   }
 
   /** Create a single-output hyperkernel from user-generated kernel code.

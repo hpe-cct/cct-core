@@ -19,6 +19,7 @@ package cogx.compiler.optimizer
 import cogx.compiler.codegenerator.KernelCircuit
 import cogx.parameters.Cog
 import cogx.platform.opencl.OpenCLKernelCodeGenParams
+import cogx.runtime.execution.Profiler
 
 /** Optimizes a kernel circuit using a variety of approaches.
   *
@@ -32,17 +33,18 @@ object KernelCircuitOptimizer extends Optimizer {
     *
     * @param kernelCircuit Kernel circuit to be optimized.
     * @param codeGenParams A bundle of device parameters that affect kernel code generation and optimization.
+    * @param profiler The profiler to use to pick the best variant
     * @param report True if verbosity is desired.
     * @return  The number of optimizations made.
     */
-  def optimize(kernelCircuit: KernelCircuit, codeGenParams: OpenCLKernelCodeGenParams, report: Boolean = true) = {
+  def optimize(kernelCircuit: KernelCircuit, codeGenParams: OpenCLKernelCodeGenParams, profiler: Profiler, report: Boolean = true) = {
     var optimizations = 0
     if (Enabled) {
-      optimizations += DeadKernel.optimize(kernelCircuit, codeGenParams)
-      optimizations += RedundantInputs.optimize(kernelCircuit, codeGenParams)
-      optimizations += CommonSubexpression.optimize(kernelCircuit, codeGenParams)
-      optimizations += TensorReduceOptimizer.optimize(kernelCircuit, codeGenParams)
-      optimizations += ProjectFrameTensorReduceSumOptimizer.optimize(kernelCircuit, codeGenParams)
+      optimizations += DeadKernel.optimize(kernelCircuit, codeGenParams, profiler)
+      optimizations += RedundantInputs.optimize(kernelCircuit, codeGenParams, profiler)
+      optimizations += CommonSubexpression.optimize(kernelCircuit, codeGenParams, profiler)
+      optimizations += TensorReduceOptimizer.optimize(kernelCircuit, codeGenParams, profiler)
+      optimizations += ProjectFrameTensorReduceSumOptimizer.optimize(kernelCircuit, codeGenParams, profiler)
 
       // Loop over a list of optimizers whose improvements may create further
       // optimization opportunities.  Keep going until no further optimizations
@@ -50,15 +52,15 @@ object KernelCircuitOptimizer extends Optimizer {
 
       // The TransformTranspose optimizer takes a few passes to fully absorb all the transpose kernels.
       // We want this complete before the transpose kernels might be merged into multi-output kernels
-      optimizations += loopOptimize(kernelCircuit, codeGenParams, report, Array(TransformTransposeOptimizer))
+      optimizations += loopOptimize(kernelCircuit, codeGenParams, profiler, report, Array(TransformTransposeOptimizer))
 
       // Other optimizers that might take a few passes worst case
       val dependentOptimizers = Array(HyperKernelMerger, HyperKernelMultiOutputMerger)
-      optimizations += loopOptimize(kernelCircuit, codeGenParams, report, dependentOptimizers)
+      optimizations += loopOptimize(kernelCircuit, codeGenParams, profiler, report, dependentOptimizers)
 
       // Reshape remover- no other kernel creation should happen after this, so do this last
 
-      optimizations += loopOptimize(kernelCircuit, codeGenParams, report, Array(ReshapeRemover))
+      optimizations += loopOptimize(kernelCircuit, codeGenParams, profiler, report, Array(ReshapeRemover))
 
       if (Cog.verboseOptimizer) {
         println("Post-optimizer kernel circuit:")
@@ -73,18 +75,19 @@ object KernelCircuitOptimizer extends Optimizer {
     *
     * @param kernelCircuit Kernel circuit to be optimized
     * @param platformParams A bundle of platform parameters that affect kernel code generation and optimization.
+    * @param profiler The profiler to use to pick the best variant
     * @param report True if verbosity is desired
     * @param optimizers The optimizers to loop over until no further improvement is seen
     * @return  The number of optimizations made
     */
-  private def loopOptimize(kernelCircuit: KernelCircuit, platformParams: OpenCLKernelCodeGenParams, report: Boolean, optimizers: Array[Optimizer]) = {
+  private def loopOptimize(kernelCircuit: KernelCircuit, platformParams: OpenCLKernelCodeGenParams, profiler: Profiler, report: Boolean, optimizers: Array[Optimizer]) = {
     var optimizations = 0
     var numOptimizers = optimizers.length
     var consecutiveFails = 0
     var i = 0
     while(consecutiveFails <= numOptimizers - 1) {
       val optimizer = optimizers(i)
-      val improvements = optimizer.optimize(kernelCircuit, platformParams)
+      val improvements = optimizer.optimize(kernelCircuit, platformParams, profiler)
       optimizations += improvements
       if (improvements == 0)
         consecutiveFails += 1

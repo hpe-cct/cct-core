@@ -21,6 +21,7 @@ import cogx.platform.types._
 import cogx.cogmath.geometry.Shape
 import cogx.compiler.parser.op.MatrixTransformMatrixOp
 import cogx.platform.opencl.OpenCLKernelCodeGenParams
+import cogx.runtime.execution.Profiler
 
 /** Computes the matrix multiply of 2 fields considered to be matrices.
   *
@@ -374,21 +375,52 @@ class MatrixMatrixTransform0DFieldTiledHyperKernel private[MatrixMatrixTransform
 }
 
 object MatrixMatrixTransform0DFieldTiledHyperKernel {
-  // These must be identical or a factor of 2 apart I think, since handling non-square tile size is tricky
-  // Setting was best for big examples on Titan Black, Titan-X and 1080.  Smaller examples preferred 2x2 tile.
-  private val defaultMiniTileRows = 4
-  private val defaultMiniTileColumns = 2
+  // Flag availble to affect behavior for testing
+  var useProfiling = true
 
   def apply(in: Array[VirtualFieldRegister],
             op: MatrixTransformMatrixOp,
-            resultType: FieldType, codeGenParams: OpenCLKernelCodeGenParams) = {
+            resultType: FieldType, codeGenParams: OpenCLKernelCodeGenParams, profiler: Profiler) = {
 
-    // Making the miniTile rows and columns explicit in the opcode makes these parameters
-    // appear in the profiler output, which can be helpful.
-    val (miniTileRows, miniTileColumns) = miniTileSize(in, op, resultType)
-    val explicitOp = MatrixTransformMatrixOp(op.transposeIn1, op.transposeIn2, Some(miniTileRows), Some(miniTileColumns))
 
-    new MatrixMatrixTransform0DFieldTiledHyperKernel(in, explicitOp, resultType, codeGenParams)
+    // If the mini-tile size is specified, or useProfiling if false, don't use profiling
+    if (!useProfiling || op.rowsPerThread != None || op.colsPerThread != None) {
+      // old approach, left here temporarily to aid performance comparisons
+      // Making the miniTile rows and columns explicit in the opcode makes these parameters
+      // appear in the profiler output, which can be helpful.
+      val (miniTileRows, miniTileColumns) = miniTileSize(in, op, resultType)
+      val explicitOp = MatrixTransformMatrixOp(op.transposeIn1, op.transposeIn2, Some(miniTileRows), Some(miniTileColumns))
+
+      new MatrixMatrixTransform0DFieldTiledHyperKernel(in, explicitOp, resultType, codeGenParams)
+    }
+    else {
+      // Employ Profiler...
+      // This operator is described with variants based the following choices for (miniTileRowsSizes, miniTileColumnsSizes)
+      val miniTileRowsSizes = Seq(1, 2, 4)
+      val miniTileColumnsSizes = Seq(1, 2, 4)
+
+      val parameters =
+          for (miniTileRows <- miniTileRowsSizes; miniTileColumns <- miniTileColumnsSizes)
+            yield (miniTileRows, miniTileColumns)
+
+      val variantOpcodes: Array[MatrixTransformMatrixOp] = parameters.toArray.map(tileSize =>
+        MatrixTransformMatrixOp(op.transposeIn1, op.transposeIn2, Some(tileSize._1), Some(tileSize._2))
+      )
+      val experimentName = op.name
+      val variantNames = variantOpcodes.map(_.toString)
+      def variantGeneratorReturningHyperKernel(i: Int)(inputs: Array[VirtualFieldRegister]): HyperKernel = {
+        if (variantOpcodes(i).rowsPerThread.get == 1 && variantOpcodes(i).colsPerThread.get == 1)
+          new MatrixMatrixTransform0DFieldHyperKernel(inputs, variantOpcodes(i), resultType)
+        else
+          new MatrixMatrixTransform0DFieldTiledHyperKernel(inputs, variantOpcodes(i), resultType, codeGenParams)
+      }
+      def variantGeneratorReturningUnit(i: Int)(inputs: Array[VirtualFieldRegister]): Unit = {
+        variantGeneratorReturningHyperKernel(i)(inputs)
+      }
+      val bestOpcodeIndex = profiler.bestVariant(experimentName, variantNames, variantGeneratorReturningUnit, in, Array(resultType))
+      // Now add the best variant to the main circuit
+      variantGeneratorReturningHyperKernel(bestOpcodeIndex)(in)
+    }
   }
 
   // Figure out the best miniTile size, based on total thread count considerations, unless explicitly set in the op.
@@ -397,6 +429,10 @@ object MatrixMatrixTransform0DFieldTiledHyperKernel {
                    resultType: FieldType) = {
     def approxTiledKernelThreads(miniTileRows: Int, miniTileCols: Int) =
       resultType.tensorShape.points / (miniTileRows*miniTileCols)
+    // These must be identical or a factor of 2 apart I think, since handling non-square tile size is tricky
+    // Setting was best for big examples on Titan Black, Titan-X and 1080.  Smaller examples preferred 2x2 tile.
+    val defaultMiniTileRows = 4
+    val defaultMiniTileColumns = 2
     val threadsForGoodUtilization = 8000
 
     val (threadDrivenMiniTileRows, threadDrivenMiniTileColumns) =

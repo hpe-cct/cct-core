@@ -32,6 +32,7 @@ import cogx.cogmath.algebra.complex.{Complex, ComplexMatrix}
 import cogx.cogmath.fft.FFT2D
 import cogx.compiler.codegenerator.opencl.cpukernels.{ConstantFieldKernel, FixedComplexMatrixKernel}
 import cogx.compiler.codegenerator.opencl.generator.FFTConvolutionUtils._
+import cogx.runtime.execution.Profiler
 
 /** Code generation for convolution or cross-correllation with a kernel that may
   * be dynamically altered at runtime.  There are many cases to cover here,
@@ -75,7 +76,8 @@ object DynamicConvolutionGenerator
   def apply(inputs: Array[VirtualFieldRegister], operation: ConvolveOp,
             resultType: FieldType, fftUse: ConvolutionFFTUsePolicy,
             smallTensorUse: ConvolutionSmallTensorUsePolicy,
-            codeGenParams: OpenCLKernelCodeGenParams): AbstractKernel =
+            codeGenParams: OpenCLKernelCodeGenParams,
+            profiler: Profiler): AbstractKernel =
   {
     val inputImage = inputs(0)
     val imageType = inputImage.fieldType
@@ -91,13 +93,13 @@ object DynamicConvolutionGenerator
 
       val redConvolved =
         apply(Array(red, inputFilter), operation, planeType,
-          fftUse, smallTensorUse, codeGenParams).outputs(0)
+          fftUse, smallTensorUse, codeGenParams, profiler).outputs(0)
       val greenConvolved =
         apply(Array(green, inputFilter), operation, planeType,
-          fftUse, smallTensorUse, codeGenParams).outputs(0)
+          fftUse, smallTensorUse, codeGenParams, profiler).outputs(0)
       val blueConvolved =
         apply(Array(blue, inputFilter), operation, planeType,
-          fftUse, smallTensorUse, codeGenParams).outputs(0)
+          fftUse, smallTensorUse, codeGenParams, profiler).outputs(0)
 
       CreateColorFieldHyperKernel(Array(redConvolved, greenConvolved, blueConvolved),
         MergeColorPlanesOp, resultType)
@@ -129,18 +131,18 @@ object DynamicConvolutionGenerator
             filterType.tensorOrder > 1 ||
             stdConvolveOKToUse &&
             !fftConvolutionIsFaster(imageType, filterType, operation, dynamicFilter))
-          convolveDirectly(inputs, operation, resultType, smallTensorUse, codeGenParams)
+          convolveDirectly(inputs, operation, resultType, smallTensorUse, codeGenParams, profiler)
         else if (fftOKToUse && EnableFFTVectorConvolution &&
                 (imageType.tensorOrder > 0 || filterType.tensorOrder > 0))
           FFTVectorConvolutionGenerator(inputs, operation, resultType)
         else if (imageType.tensorOrder == 2 &&
                 imageType.tensorShape == filterType.tensorShape)
-         matrixConvolveMatrix(inputs, operation, resultType, fftUse, smallTensorUse, codeGenParams)
+         matrixConvolveMatrix(inputs, operation, resultType, fftUse, smallTensorUse, codeGenParams, profiler)
         else if (imageType.tensorOrder == 1 &&
                 imageType.tensorShape == filterType.tensorShape)
-          vectorConvolveVector(inputs, operation, resultType, fftUse, smallTensorUse, codeGenParams)
+          vectorConvolveVector(inputs, operation, resultType, fftUse, smallTensorUse, codeGenParams, profiler)
         else if (isTensor0Field(imageType) && filterType.tensorOrder == 1)
-          scalarConvolveVector(inputs, operation, resultType, fftUse, smallTensorUse, codeGenParams)
+          scalarConvolveVector(inputs, operation, resultType, fftUse, smallTensorUse, codeGenParams, profiler)
         else
           convolveBy2DFFT(inputs, operation, resultType)
       }
@@ -154,10 +156,10 @@ object DynamicConvolutionGenerator
             case BorderClamp =>  chooseFFTifBigAndSupported()
             case BorderZero =>   chooseFFTifBigAndSupported()
             case BorderCyclic => chooseFFTifBigAndSupported()
-            case _ => convolveDirectly(inputs, operation, resultType, smallTensorUse, codeGenParams)
+            case _ => convolveDirectly(inputs, operation, resultType, smallTensorUse, codeGenParams, profiler)
           }
         case 1 =>
-          convolveDirectly(inputs, operation, resultType, smallTensorUse, codeGenParams)
+          convolveDirectly(inputs, operation, resultType, smallTensorUse, codeGenParams, profiler)
         case x =>
           throw new RuntimeException(
             "Convolution not supported on field of dimension " + x)
@@ -170,7 +172,7 @@ object DynamicConvolutionGenerator
     {
       // Convolving a scalar field with a complex vector field is done
       // directly if the filter size is small enough.
-      convolveDirectly(inputs, operation, resultType, smallTensorUse, codeGenParams)
+      convolveDirectly(inputs, operation, resultType, smallTensorUse, codeGenParams, profiler)
     }
     else if (isComplexField(inputImage.fieldType) ||
             isComplexField(inputFilter.fieldType)) {
@@ -218,7 +220,7 @@ object DynamicConvolutionGenerator
   def vectorConvolveVector(inputs: Array[VirtualFieldRegister], op: ConvolveOp,
        resultType: FieldType, fftUse: ConvolutionFFTUsePolicy,
        smallTensorUse: ConvolutionSmallTensorUsePolicy,
-       platformParams: OpenCLKernelCodeGenParams): AbstractKernel =
+       platformParams: OpenCLKernelCodeGenParams, profiler: Profiler): AbstractKernel =
   {
     val image = inputs(0)
     val imageType = image.fieldType
@@ -241,7 +243,7 @@ object DynamicConvolutionGenerator
     }
     val convolvedPlanes =  Array.tabulate(N) { i =>
       apply(Array(inputPlanes(i).outputs(0), filterPlanes(i).outputs(0)), op, imagePlaneType,
-        fftUse, smallTensorUse, platformParams).outputs(0)
+        fftUse, smallTensorUse, platformParams, profiler).outputs(0)
     }
     StackTensorsHyperKernel(convolvedPlanes, TensorStackOp(Shape(N)), imageType)
   }
@@ -253,7 +255,8 @@ object DynamicConvolutionGenerator
   def matrixConvolveMatrix(inputs: Array[VirtualFieldRegister], op: ConvolveOp,
        resultType: FieldType, fftUse: ConvolutionFFTUsePolicy,
        smallTensorUse: ConvolutionSmallTensorUsePolicy,
-       platformParams: OpenCLKernelCodeGenParams): AbstractKernel =
+       platformParams: OpenCLKernelCodeGenParams,
+                           profiler: Profiler): AbstractKernel =
   {
     val image = inputs(0)
     val imageType = image.fieldType
@@ -276,7 +279,7 @@ object DynamicConvolutionGenerator
     }
     val convolvedPlanes =  Array.tabulate(N) { i =>
       vectorConvolveVector(Array(inputPlanes(i).outputs(0), filterPlanes(i).outputs(0)), op,
-        imagePlaneType, fftUse, smallTensorUse, platformParams).outputs(0)
+        imagePlaneType, fftUse, smallTensorUse, platformParams, profiler).outputs(0)
     }
     StackTensorsHyperKernel(convolvedPlanes, TensorStackOp(Shape(N)), imageType)
   }
@@ -288,7 +291,7 @@ object DynamicConvolutionGenerator
   def scalarConvolveVector(inputs: Array[VirtualFieldRegister], op: ConvolveOp,
        resultType: FieldType, fftUse: ConvolutionFFTUsePolicy,
        smallTensorUse: ConvolutionSmallTensorUsePolicy,
-       platformParams: OpenCLKernelCodeGenParams): AbstractKernel =
+       platformParams: OpenCLKernelCodeGenParams, profiler: Profiler): AbstractKernel =
   {
     val image = inputs(0)
     val imageType = image.fieldType
@@ -307,7 +310,7 @@ object DynamicConvolutionGenerator
     }
     val convolvedPlanes =  Array.tabulate(N) { i =>
       apply(Array(image, filterPlanes(i).outputs(0)), op, imageType,
-        fftUse, smallTensorUse, platformParams).outputs(0)
+        fftUse, smallTensorUse, platformParams, profiler).outputs(0)
     }
     StackTensorsHyperKernel(convolvedPlanes, TensorStackOp(Shape(N)), resultType)
   }
@@ -481,7 +484,8 @@ object DynamicConvolutionGenerator
   def convolveDirectly(inputs: Array[VirtualFieldRegister],
             operation: ConvolveOp, resultType: FieldType,
             smallTensorUse: ConvolutionSmallTensorUsePolicy,
-            platformParams: OpenCLKernelCodeGenParams): AbstractKernel =
+            platformParams: OpenCLKernelCodeGenParams,
+            profiler: Profiler): AbstractKernel =
   {
     // Direct 1D or 2D real field convolution via the ConvolveHyperKernel
     // The are many options to cover here, based on:
@@ -531,6 +535,6 @@ object DynamicConvolutionGenerator
       case _ => false
     }
 
-    ConvolveHyperKernel(inputs, operation, resultType, smallTensorUse, platformParams)
+    ConvolveHyperKernel(inputs, operation, resultType, smallTensorUse, platformParams, profiler)
   }
 }

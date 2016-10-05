@@ -27,6 +27,7 @@ import cogx.compiler.codegenerator.common.FieldPolicies._
 import cogx.compiler.parser.op.ConvolveOp
 import cogx.parameters.Cog
 import ConvolveHyperKernel._
+import cogx.runtime.execution.Profiler
 
 
 /** Convolve a field with a dynamic filter field.
@@ -995,12 +996,14 @@ object ConvolveHyperKernel {
     * @param resultType The FieldType of the result of this kernel.
     * @param smallTensorUse Policy on use of small tensors by the kernel.
     * @param codeGenParams A bundle of platform parameters that affect kernel code generation and optimization.
+    * @param profiler The profiler to use to pick the best variant
     * @return The synthesized hyperkernel.
     *
     */
   def apply(inputs: Array[VirtualFieldRegister], operation: ConvolveOp, resultType: FieldType,
             smallTensorUse: ConvolutionSmallTensorUsePolicy,
-            codeGenParams: OpenCLKernelCodeGenParams): HyperKernel = {
+            codeGenParams: OpenCLKernelCodeGenParams,
+            profiler: Profiler): HyperKernel = {
 
     import operation._
     // BorderValid convolutions or crossCorrelations in filter adjoint mode
@@ -1058,7 +1061,7 @@ object ConvolveHyperKernel {
           new FieldType(Shape(),Shape(logicalFilters,inputFeatures*resultPoints), inputs(0).fieldType.elementType)
         // Perform the filter adjoint operation as a matrix multiply that includes a reduction by the batchSize
         val unShapedResult = MatrixMatrixTransformHyperKernel(transformInputs,
-          MatrixTransformMatrixOp(false, false), transformResultType, codeGenParams).outputs(0)
+          MatrixTransformMatrixOp(false, false), transformResultType, codeGenParams, profiler).outputs(0)
         ReshapeHyperKernel(unShapedResult, ReshapeOp(resultType.fieldShape, resultType.tensorShape, false))
       }}
 

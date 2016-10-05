@@ -158,7 +158,7 @@ object ScalarFieldGenerator {
       case op: ConvolveToSmallFieldTiledOp =>
         ConvolveToSmallFieldPipelinedTiledHyperKernel(inputs, op, fieldType, codeGenParams)
       case op: ConvolveOp =>
-        DynamicConvolutionGenerator(inputs, op, fieldType, fftUse, smallTensorUse, codeGenParams)
+        DynamicConvolutionGenerator(inputs, op, fieldType, fftUse, smallTensorUse, codeGenParams, profiler)
       case op: ComplexToRealOp =>
         ComplexToRealHyperKernel(inputs, op, fieldType)
       case DownsampleOp(factor, phase) =>

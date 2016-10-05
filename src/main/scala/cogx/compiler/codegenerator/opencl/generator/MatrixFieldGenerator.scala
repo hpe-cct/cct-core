@@ -109,13 +109,13 @@ object MatrixFieldGenerator {
       case VectorTransposeOp =>
         TensorTransposeHyperKernel(inputs, opcode, fieldType)
       case op: MatrixTransformMatrixOp =>
-        MatrixMatrixTransformHyperKernel(inputs, op, fieldType, codeGenParams)
+        MatrixMatrixTransformHyperKernel(inputs, op, fieldType, codeGenParams, profiler)
       case MatrixInvertOp =>
         MatrixInvertHyperKernel(inputs(0), opcode, fieldType)
       case Transpose2DOp =>
         TransposeHyperKernel(inputs, Transpose2DOp, fieldType)
       case op: ConvolveOp =>
-        DynamicConvolutionGenerator(inputs, op, fieldType, fftUse, smallTensorUse, codeGenParams)
+        DynamicConvolutionGenerator(inputs, op, fieldType, fftUse, smallTensorUse, codeGenParams, profiler)
       case PushOp =>
         require(fieldType.dimensions > 0)
         PushHyperKernel(inputs, opcode, fieldType)

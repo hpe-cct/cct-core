@@ -21,6 +21,7 @@ import cogx.platform.types.{FieldType, Opcode, VirtualFieldRegister}
 import cogx.cogmath.geometry.Shape
 import cogx.compiler.parser.op.MatrixTransformMatrixOp
 import cogx.platform.opencl.OpenCLKernelCodeGenParams
+import cogx.runtime.execution.Profiler
 
 /** Transform all matrices in a matrix field (second input) with corresponding
   * matrices in a matrix field (first input).  The field Shapes must match, or
@@ -110,19 +111,20 @@ class MatrixMatrixTransformHyperKernel private (in: Array[VirtualFieldRegister],
   */
 private[cogx]
 object MatrixMatrixTransformHyperKernel {
-  /**
-    * Creates a kernel that performs the matrix field transform.
+  /** Creates a kernel that performs the matrix field transform.
     *
     * @param in The two input virtual field registers driving this kernel.
     * @param op The binary opcode for this operation.
     * @param resultType The FieldType of the result of this kernel.
     * @param codeGenParams A bundle of platform parameters that affect kernel code generation and optimization.
+    * @param profiler The profiler to use to pick the best variant
     * @return Synthesized hyperkernel for the operation.
     */
   def apply(in: Array[VirtualFieldRegister],
             op: MatrixTransformMatrixOp,
             resultType: FieldType,
-            codeGenParams: OpenCLKernelCodeGenParams): HyperKernel =
+            codeGenParams: OpenCLKernelCodeGenParams,
+            profiler: Profiler): HyperKernel =
   {
     require(in.length == 2, "Expecting two inputs, found " + in.length)
     val matrix1Type = in(0).fieldType
@@ -178,12 +180,8 @@ object MatrixMatrixTransformHyperKernel {
 //    val threadThreshold = 1
 //    val threadThreshold = 5000
 
-    if (matrix1Type.dimensions == 0 &&
-        matrix2Type.dimensions == 0 &&
-        MatrixMatrixTransform0DFieldTiledHyperKernel.isRecommended(in, op, resultType))
-      MatrixMatrixTransform0DFieldTiledHyperKernel(in, op, resultType, codeGenParams)
-    else if (matrix1Type.dimensions == 0 && matrix2Type.dimensions == 0)
-      new MatrixMatrixTransform0DFieldHyperKernel(in, op, resultType)
+    if (matrix1Type.dimensions == 0 && matrix2Type.dimensions == 0)
+      MatrixMatrixTransform0DFieldTiledHyperKernel(in, op, resultType, codeGenParams, profiler)
     else
       new MatrixMatrixTransformHyperKernel(in, op, resultType)
   }

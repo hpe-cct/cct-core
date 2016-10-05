@@ -70,7 +70,7 @@ object ComplexVectorFieldGenerator {
       // the more generalized kernels below):
 
       case op: ConvolveOp =>
-        DynamicConvolutionGenerator(inputs, op, fieldType, fftUse, smallTensorUse, codeGenParams)
+        DynamicConvolutionGenerator(inputs, op, fieldType, fftUse, smallTensorUse, codeGenParams, profiler)
       case FlipOp =>
         FlipHyperKernel(inputs, opcode, fieldType)   // Not tested XXX
       case op: FFT1DOp =>

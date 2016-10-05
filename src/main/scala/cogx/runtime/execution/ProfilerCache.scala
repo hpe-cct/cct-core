@@ -15,10 +15,13 @@
  */
 package cogx.runtime.execution
 
+import java.nio.file.Files
+
 import cogx.parameters.Cog
 import cogx.platform.types.{CheckpointerType, Hdf5CheckpointerType, JavaCheckpointerType}
 import cogx.runtime.checkpoint.hdf5.{Hdf5ObjectRestorer, Hdf5ObjectSaver}
 import cogx.runtime.checkpoint.javaserialization.{JavaObjectRestorer, JavaObjectSaver}
+import ncsa.hdf.hdf5lib.exceptions.HDF5FileInterfaceException
 
 import scala.collection.mutable
 
@@ -51,21 +54,30 @@ class ProfilerCache(deviceName: String) {
     case Some(file) =>
       if (file.exists() && !Cog.deleteProfilerCache) {
         /** A restorer object for the chosen serialization approach. */
-        val restorer = checkpointerType match {
-          case Hdf5CheckpointerType => new Hdf5ObjectRestorer(file.getPath)
-          case JavaCheckpointerType => new JavaObjectRestorer(file.getPath)
-        }
+        // If the file has been trashed, the following call returns
+        // an ncsa.hdf.hdf5lib.exceptions.HDF5FileInterfaceException
         try {
-          val major = restorer.readInt("majorVersion")
-          val minor = restorer.readInt("minorVersion")
-          require(majorVersion == 1 && minorVersion == 0,
-            s"Incompatible profiler versioning: file is $major.$minor, reader is $majorVersion.$minorVersion .")
-          restorer.readRestorableArray("profileSamples", ProfileSample).foreach( x => {
-            val sample = x.asInstanceOf[ProfileSample]
-            cache(sample.kernelCircuitHash) = sample
-          })
-        } finally
-          restorer.close()
+          val restorer = checkpointerType match {
+            case Hdf5CheckpointerType => new Hdf5ObjectRestorer(file.getPath)
+            case JavaCheckpointerType => new JavaObjectRestorer(file.getPath)
+          }
+          try {
+            val major = restorer.readInt("majorVersion")
+            val minor = restorer.readInt("minorVersion")
+            require(majorVersion == 1 && minorVersion == 0,
+              s"Incompatible profiler versioning: file is $major.$minor, reader is $majorVersion.$minorVersion .")
+            restorer.readRestorableArray("profileSamples", ProfileSample).foreach( x => {
+              val sample = x.asInstanceOf[ProfileSample]
+              cache(sample.kernelCircuitHash) = sample
+            })
+          } finally
+            restorer.close()
+        }
+        catch {
+          case e: HDF5FileInterfaceException =>
+            println("Warning: found and now deleting corrupt profile file: " + file.toPath)
+            Files.deleteIfExists(file.toPath)
+        }
       }
     case None =>
   }

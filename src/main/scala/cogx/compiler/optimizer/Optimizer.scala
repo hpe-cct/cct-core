@@ -20,6 +20,7 @@ import cogx.compiler.codegenerator.KernelCircuit
 import cogx.compiler.codegenerator.opencl.cpukernels.RecurrentFieldKernel
 import cogx.platform.opencl.OpenCLKernelCodeGenParams
 import cogx.platform.types.VirtualFieldRegister
+import cogx.runtime.execution.Profiler
 
 /** Interface for a component that optimizes a kernel circuit. Subclasses will
   * implement the "optimize" method that does an in-place optimization of the
@@ -34,10 +35,11 @@ trait Optimizer {
     *
     * @param dag  KernelCircuit possibly containing recurrent field kernels that is to be optimized.
     * @param codeGenParams A bundle of device parameters that affect kernel code generation and optimization.
+    * @param profiler The profiler to use to pick the best variant
     * @param report True if verbosity is desired.
     * @return  The number of optimizations made.
     */
-  def optimize(dag: KernelCircuit, codeGenParams: OpenCLKernelCodeGenParams, report: Boolean = true) : Int
+  def optimize(dag: KernelCircuit, codeGenParams: OpenCLKernelCodeGenParams, profiler: Profiler, report: Boolean = true) : Int
 
   /** Fix up recurrences, post merge; MUST BE CALLED BY ALL OPTIMIZERS AT
     * THE COMPLETION OF THEIR OPTIMIZATION!

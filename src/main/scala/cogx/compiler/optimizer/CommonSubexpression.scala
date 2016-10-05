@@ -17,12 +17,14 @@
 package cogx.compiler.optimizer
 
 import cogx.platform.opencl.OpenCLKernelCodeGenParams
+
 import scala.language.implicitConversions
 import scala.language.reflectiveCalls
 import scala.collection.mutable.HashSet
 import cogx.platform.types.AbstractKernel
 import cogx.compiler.codegenerator.KernelCircuit
 import cogx.parameters.Cog
+import cogx.runtime.execution.Profiler
 
 /** Performs common subexpression elimination on kernel circuits.
   *
@@ -38,10 +40,11 @@ object CommonSubexpression extends Optimizer {
     *
     * @param circuit Kernel circuit to be optimized.
     * @param codeGenParams A bundle of device parameters that affect kernel code generation and optimization.
+    * @param profiler The profiler to use to pick the best variant
     * @param report True if verbosity is desired.
     * @return  The number of optimizations made.
     */
-  def optimize(circuit: KernelCircuit, codeGenParams: OpenCLKernelCodeGenParams, report: Boolean = true): Int = {
+  def optimize(circuit: KernelCircuit, codeGenParams: OpenCLKernelCodeGenParams, profiler: Profiler, report: Boolean = true): Int = {
     if (Cog.verboseOptimizer)
       println("    *** CommonSubexpression: starting (" + circuit.size + " nodes)")
     // The hash set here relies on some subtle properties of AbstractKernels
@@ -85,10 +88,14 @@ object CommonSubexpression extends Optimizer {
   }
 
   /** Since this optimizer doesn't rely on platform parameters, we provide this simpler interface. */
-  def optimize(circuit: KernelCircuit, report: Boolean): Int =
-    optimize(circuit, null.asInstanceOf[OpenCLKernelCodeGenParams], report)
+  def optimize(circuit: KernelCircuit, profiler: Profiler, report: Boolean): Int =
+    optimize(circuit, null.asInstanceOf[OpenCLKernelCodeGenParams], profiler, report)
 
   /** Since this optimizer doesn't rely on platform parameters, we provide this simpler interface. */
+  def optimize(circuit: KernelCircuit, profiler: Profiler): Int =
+    optimize(circuit, null.asInstanceOf[OpenCLKernelCodeGenParams], profiler, true)
+
+  /** Since this optimizer doesn't rely on platform parameters or profiler, we provide this simpler interface. */
   def optimize(circuit: KernelCircuit): Int =
-    optimize(circuit, null.asInstanceOf[OpenCLKernelCodeGenParams], true)
+    optimize(circuit, null.asInstanceOf[OpenCLKernelCodeGenParams], null.asInstanceOf[Profiler], true)
 }

@@ -22,6 +22,7 @@ import cogx.compiler.codegenerator.opencl.hyperkernels._
 import cogx.compiler.parser.op._
 import cogx.parameters.Cog
 import cogx.platform.opencl.OpenCLKernelCodeGenParams
+import cogx.runtime.execution.Profiler
 
 /** Optimizer of kernel DAGs that combined MatrixMatrixTransformHyperKernels and TensorTransposeHyperKernels
   *
@@ -80,10 +81,11 @@ object TransformTransposeOptimizer extends Optimizer {
     *
     * @param dag Kernel circuit to be optimized.
     * @param codeGenParams A bundle of device parameters that affect kernel code generation and optimization.
+    * @param profiler The profiler to use to pick the best variant
     * @param report True if verbosity is desired.
     * @return  The number of optimizations made.
     */
-  def optimize(dag: KernelCircuit, codeGenParams: OpenCLKernelCodeGenParams, report: Boolean = true) = {
+  def optimize(dag: KernelCircuit, codeGenParams: OpenCLKernelCodeGenParams, profiler: Profiler, report: Boolean = true) = {
     val answer =
       if (!Enabled) {
         if (Cog.verboseOptimizer) {
@@ -114,7 +116,7 @@ object TransformTransposeOptimizer extends Optimizer {
                       val mmIn2 = mmMultiplyKernel.inputs(1)
                       val newMmMultiply =
                         MatrixMatrixTransformHyperKernel(Array(mmIn2, mmIn1), newOp,
-                          tensorTransposeKernel.resultType, codeGenParams)
+                          tensorTransposeKernel.resultType, codeGenParams, profiler)
                       newMmMultiply.outputs(0).stealProbeAndNameFrom(tensorTransposeKernel.outputs(0))
                       newMmMultiply.outputs(0).stealSinksFrom(tensorTransposeKernel.outputs(0))
                       tensorTransposeKernel.removeFromCircuit(mustDo = true)
@@ -142,7 +144,7 @@ object TransformTransposeOptimizer extends Optimizer {
                       val mmIn2 = mmMultiplyKernel.inputs(1)
                       val newMmMultiplyKernel =
                         MatrixMatrixTransformHyperKernel(Array(mmIn1, mmIn2), newOp,
-                          mmMultiplyKernel.resultTypes(0), codeGenParams)
+                          mmMultiplyKernel.resultTypes(0), codeGenParams, profiler)
                       newMmMultiplyKernel.outputs(0).stealProbeAndNameFrom(mmMultiplyKernel.outputs(0))
                       newMmMultiplyKernel.outputs(0).stealSinksFrom(mmMultiplyKernel.outputs(0))
                       mmMultiplyKernel.removeFromCircuit(mustDo = true)
@@ -163,7 +165,7 @@ object TransformTransposeOptimizer extends Optimizer {
                           val mmIn2 = tensorTransposeKernel.inputs(0)
                           val newMmMultiplyKernel =
                             MatrixMatrixTransformHyperKernel(Array(mmIn1, mmIn2), newOp,
-                              mmMultiplyKernel.resultTypes(0), codeGenParams)
+                              mmMultiplyKernel.resultTypes(0), codeGenParams, profiler)
                           newMmMultiplyKernel.outputs(0).stealProbeAndNameFrom(mmMultiplyKernel.outputs(0))
                           newMmMultiplyKernel.outputs(0).stealSinksFrom(mmMultiplyKernel.outputs(0))
                           mmMultiplyKernel.removeFromCircuit(mustDo = true)

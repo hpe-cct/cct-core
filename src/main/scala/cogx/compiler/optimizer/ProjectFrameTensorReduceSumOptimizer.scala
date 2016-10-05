@@ -23,6 +23,7 @@ import cogx.compiler.parser.op._
 import cogx.parameters.Cog
 import cogx.platform.opencl.OpenCLKernelCodeGenParams
 import cogx.platform.types.{BorderValid, CrossCorrelationOrientation, UpsampleInputConvolution, UseSmallTensorWhenBest}
+import cogx.runtime.execution.Profiler
 
 /** Optimizer of kernel DAGs.
   *
@@ -67,10 +68,11 @@ object ProjectFrameTensorReduceSumOptimizer extends Optimizer {
     *
     * @param dag Kernel circuit to be optimized.
     * @param codeGenParams A bundle of device parameters that affect kernel code generation and optimization.
+    * @param profiler The profiler to use to pick the best variant
     * @param report True if verbosity is desired.
     * @return  The number of optimizations made.
     */
-  def optimize(dag: KernelCircuit, codeGenParams: OpenCLKernelCodeGenParams, report: Boolean = true) = {
+  def optimize(dag: KernelCircuit, codeGenParams: OpenCLKernelCodeGenParams, profiler: Profiler, report: Boolean = true) = {
     val answer =
       if (!Enabled) {
         if (Cog.verboseOptimizer) {
@@ -138,7 +140,7 @@ object ProjectFrameTensorReduceSumOptimizer extends Optimizer {
                           ConvolveHyperKernel.outputFieldType(convolveKernel.inputs(0).fieldType, convolveKernel.inputs(1).fieldType,
                             newOp.borderPolicy, newOp.samplingPolicy, newOp.vectorMode, newOp.batchSize)
                       val newConvolveKernel =
-                          ConvolveHyperKernel(convolveKernel.inputs.toArray, newOp, newResultType, UseSmallTensorWhenBest, codeGenParams)
+                          ConvolveHyperKernel(convolveKernel.inputs.toArray, newOp, newResultType, UseSmallTensorWhenBest, codeGenParams, profiler)
                       val lastKernel =
                         if (newResultType.tensorShape == Shape(1))
                           SliceVectorsHyperKernel(newConvolveKernel.outputs(0), TensorSliceOp(0), newResultType.resizeTensor(Shape()))

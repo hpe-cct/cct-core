@@ -22,6 +22,7 @@ import cogx.compiler.codegenerator.opencl.hyperkernels._
 import cogx.compiler.parser.op._
 import cogx.parameters.Cog
 import cogx.platform.opencl.OpenCLKernelCodeGenParams
+import cogx.runtime.execution.Profiler
 
 /** Optimizer of kernel DAGs that removes the ReshapeHyperKernel
   *
@@ -40,10 +41,11 @@ object ReshapeRemover extends Optimizer {
     *
     * @param dag Kernel circuit to be optimized.
     * @param codeGenParams A bundle of device parameters that affect kernel code generation and optimization.
+    * @param profiler The profiler to use to pick the best variant
     * @param report True if verbosity is desired.
     * @return  The number of optimizations made.
     */
-  def optimize(dag: KernelCircuit, codeGenParams: OpenCLKernelCodeGenParams, report: Boolean = true) = {
+  def optimize(dag: KernelCircuit, codeGenParams: OpenCLKernelCodeGenParams, profiler: Profiler, report: Boolean = true) = {
     val answer =
       if (!Enabled) {
         if (Cog.verboseOptimizer) {

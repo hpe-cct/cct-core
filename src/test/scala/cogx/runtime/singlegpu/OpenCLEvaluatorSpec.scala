@@ -537,7 +537,7 @@ class OpenCLEvaluatorSpec extends FunSuite with MustMatchers {
       probeKernels(out0, out1)
     }
 
-    KernelCircuitOptimizer.optimize(circuit, platform.kernelCodeGenParams)
+    KernelCircuitOptimizer.optimize(circuit, platform.kernelCodeGenParams, null)
     val evaluator = new Evaluator(circuit, platform)
 
     // Track down where the field memory is after the optimizer has run
@@ -593,7 +593,7 @@ class OpenCLEvaluatorSpec extends FunSuite with MustMatchers {
       }
 
       if (optimize)
-        KernelCircuitOptimizer.optimize(circuit, platform.kernelCodeGenParams)
+        KernelCircuitOptimizer.optimize(circuit, platform.kernelCodeGenParams, null)
       val evaluator = new Evaluator(circuit, platform)
 
       try {
@@ -664,7 +664,7 @@ class OpenCLEvaluatorSpec extends FunSuite with MustMatchers {
       }
 
       if (optimize)
-        KernelCircuitOptimizer.optimize(circuit, platform.kernelCodeGenParams)
+        KernelCircuitOptimizer.optimize(circuit, platform.kernelCodeGenParams, null)
       val evaluator = new Evaluator(circuit, platform)
 
       try {
@@ -748,7 +748,7 @@ class OpenCLEvaluatorSpec extends FunSuite with MustMatchers {
       }
 
       if (optimize)
-        KernelCircuitOptimizer.optimize(circuit, platform.kernelCodeGenParams)
+        KernelCircuitOptimizer.optimize(circuit, platform.kernelCodeGenParams, null)
       val evaluator = new Evaluator(circuit, platform)
 
       try {
@@ -820,7 +820,7 @@ class OpenCLEvaluatorSpec extends FunSuite with MustMatchers {
       }
 
       if (optimize)
-        KernelCircuitOptimizer.optimize(circuit, platform.kernelCodeGenParams)
+        KernelCircuitOptimizer.optimize(circuit, platform.kernelCodeGenParams, null)
       val evaluator = new Evaluator(circuit, platform)
 
       try {

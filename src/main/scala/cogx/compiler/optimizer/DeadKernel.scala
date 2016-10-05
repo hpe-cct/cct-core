@@ -22,6 +22,7 @@ import cogx.compiler.codegenerator.opencl.fragments.HyperKernel
 import cogx.parameters.Cog
 import cogx.platform.opencl.OpenCLKernelCodeGenParams
 import cogx.platform.types.AbstractKernel
+import cogx.runtime.execution.Profiler
 
 /** Removes kernels that don't contribute to any probed value (this includes kernels with
   * recurrences, since they are currently marked as probed).  This operation is equivalent
@@ -35,10 +36,11 @@ object DeadKernel extends Optimizer {
     *
     * @param kernelCircuit Kernel circuit to be optimized.
     * @param codeGenParams A bundle of device parameters that affect kernel code generation and optimization.
+    * @param profiler The profiler to use to pick the best variant
     * @param report True if verbosity is desired.
     * @return  The number of optimizations made.
     */
-  def optimize(kernelCircuit: KernelCircuit, codeGenParams: OpenCLKernelCodeGenParams, report: Boolean = true): Int = {
+  def optimize(kernelCircuit: KernelCircuit, codeGenParams: OpenCLKernelCodeGenParams, profiler: Profiler, report: Boolean = true): Int = {
     if (Cog.verboseOptimizer) {
       println(s"    *** DeadKernel: starting (${kernelCircuit.size}} nodes)")
       //Timer.go
@@ -82,10 +84,10 @@ object DeadKernel extends Optimizer {
   }
 
   /** Since this optimizer doesn't rely on platform parameters, we provide this simpler interface. */
-  def optimize(circuit: KernelCircuit, report: Boolean): Int =
-    optimize(circuit, null.asInstanceOf[OpenCLKernelCodeGenParams], report)
+  def optimize(circuit: KernelCircuit, profiler: Profiler, report: Boolean): Int =
+    optimize(circuit, null.asInstanceOf[OpenCLKernelCodeGenParams], profiler, report)
 
   /** Since this optimizer doesn't rely on platform parameters, we provide this simpler interface. */
-  def optimize(circuit: KernelCircuit): Int =
-    optimize(circuit, null.asInstanceOf[OpenCLKernelCodeGenParams], true)
+  def optimize(circuit: KernelCircuit, profiler: Profiler): Int =
+    optimize(circuit, null.asInstanceOf[OpenCLKernelCodeGenParams], profiler, true)
 }

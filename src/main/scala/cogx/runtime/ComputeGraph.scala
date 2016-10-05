@@ -158,11 +158,13 @@ class ComputeGraph(val optimize: Boolean = true,
     case AllocationMode.Cluster => platform.kernelCodeGenParams
   }
 
+  /** The compile-time profiler used by the code generator and optimizers. */
+  lazy val profiler = new Profiler(profilerPlatform, mode, actorSystem, forceProfiling)
+
   /** Translator from SyntaxTree to KernelCircuit */
   lazy val codeGenerator = {
     if (Verbose)
       println("ComputeGraph: creating code generator")
-    val profiler = new Profiler(profilerPlatform, mode, actorSystem, forceProfiling)
     new OpenCLCodeGenerator(kernelCodeGenParams, fftUse, convolveSmallTensorUse, profiler)
   }
 
@@ -205,7 +207,7 @@ class ComputeGraph(val optimize: Boolean = true,
     if (!userProbeAllRequest && optimize) {
       if (Verbose)
         println("ComputeGraph: optimizing")
-      KernelCircuitOptimizer.optimize(circuit, kernelCodeGenParams)
+      KernelCircuitOptimizer.optimize(circuit, kernelCodeGenParams, profiler)
     }
     if (VerbosePrint)
       circuit.print

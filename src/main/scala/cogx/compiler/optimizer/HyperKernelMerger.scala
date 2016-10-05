@@ -20,6 +20,7 @@ import cogx.compiler.codegenerator.KernelCircuit
 import cogx.compiler.codegenerator.opencl.fragments.HyperKernel
 import cogx.parameters.Cog
 import cogx.platform.opencl.OpenCLKernelCodeGenParams
+import cogx.runtime.execution.Profiler
 
 /** Optimizer of kernel trees.
   *
@@ -37,7 +38,7 @@ object HyperKernelMerger extends Optimizer {
     * @param report True if verbosity is desired.
     * @return  The number of optimizations made.
     */
-  def optimize(dag: KernelCircuit, codeGenParams: OpenCLKernelCodeGenParams, report: Boolean = true): Int = {
+  def optimize(dag: KernelCircuit, codeGenParams: OpenCLKernelCodeGenParams, profiler: Profiler, report: Boolean = true): Int = {
     if (Cog.verboseOptimizer) {
       println("    *** HyperKernelMerger: starting (" + dag.size + " nodes)")
       //Timer.go
@@ -87,10 +88,14 @@ object HyperKernelMerger extends Optimizer {
   }
 
   /** Since this optimizer doesn't rely on platform parameters, we provide this simpler interface. */
-  def optimize(circuit: KernelCircuit, report: Boolean): Int =
-    optimize(circuit, null.asInstanceOf[OpenCLKernelCodeGenParams], report)
+  def optimize(circuit: KernelCircuit, profiler: Profiler, report: Boolean): Int =
+    optimize(circuit, null.asInstanceOf[OpenCLKernelCodeGenParams], profiler, report)
 
   /** Since this optimizer doesn't rely on platform parameters, we provide this simpler interface. */
+  def optimize(circuit: KernelCircuit, profiler: Profiler): Int =
+    optimize(circuit, null.asInstanceOf[OpenCLKernelCodeGenParams], profiler, true)
+
+  /** Since some uses of this optimizer may not rely on platform parameters or a profiler, we provide this simpler interface. */
   def optimize(circuit: KernelCircuit): Int =
-    optimize(circuit, null.asInstanceOf[OpenCLKernelCodeGenParams], true)
+    optimize(circuit, null.asInstanceOf[OpenCLKernelCodeGenParams], null.asInstanceOf[Profiler], true)
 }

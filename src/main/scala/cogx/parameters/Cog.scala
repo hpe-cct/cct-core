@@ -27,7 +27,7 @@ package cogx.parameters
 object Cog {
   /** Display optimizer results. */
   var verboseOptimizer = setBoolean("verboseOptimizer")
-  /** Print out optimized circuit for ComputeGraph. */
+  /** Print out optfimized circuit for ComputeGraph. */
   var printOptimized = setBoolean("printOptimized")
   /** Print out details of merging GPU kernels. */
   var verboseKernelMerging = setBoolean("verboseKernelMerging")
