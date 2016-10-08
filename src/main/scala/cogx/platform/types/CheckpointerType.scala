@@ -16,6 +16,7 @@
 
 package cogx.platform.types
 
+import cogx.runtime.checkpoint.hdf5.Hdf5Common
 import hdfloader.Hdf5NativesLoader
 
 
@@ -36,7 +37,9 @@ private [cogx] sealed abstract class CheckpointerType(val fileSuffix: String) {
 private [cogx] case object Hdf5CheckpointerType extends CheckpointerType(".h5") {
   def isAvailable =
     try {
-      Hdf5NativesLoader.load()
+      new Hdf5Common() {
+        val fileId = 0
+      }.loadNativeLibrary()
       true
     }
     catch {

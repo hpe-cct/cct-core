@@ -96,6 +96,8 @@ object Cog {
   // One can use -Xcheck:jni to diagnose the need for libjsig.so.
   /** Check that LD_PRELOAD has libjsig.so.  This was the remedy for JVM crashes under NVIDIA drivers circa 2010. */
   var checkForLibjsig = setBoolean("checkForLibjsig", default=false)
+  /** Instructs code generators to make best single guess for a kernel, rather than generate variants to be profiled. */
+  var noVariants = setBoolean("noVariants", default=false)
   /** Output activities of the compile-time Profiler. */
   var verboseProfiler = setBoolean("verboseProfiler", default=false)
   /** Profiler should touch this much memory (in MB) to ensure a flushed L2 cache. */

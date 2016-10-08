@@ -20,6 +20,7 @@ import cogx.compiler.codegenerator.opencl.fragments._
 import cogx.platform.types._
 import cogx.cogmath.geometry.Shape
 import cogx.compiler.parser.op.MatrixTransformMatrixOp
+import cogx.parameters.Cog
 import cogx.platform.opencl.OpenCLKernelCodeGenParams
 import cogx.runtime.execution.Profiler
 
@@ -376,7 +377,7 @@ class MatrixMatrixTransform0DFieldTiledHyperKernel private[MatrixMatrixTransform
 
 object MatrixMatrixTransform0DFieldTiledHyperKernel {
   // Flag availble to affect behavior for testing
-  var useProfiling = true
+  var useProfiling = !Cog.noVariants
 
   def apply(in: Array[VirtualFieldRegister],
             op: MatrixTransformMatrixOp,

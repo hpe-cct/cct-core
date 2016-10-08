@@ -82,6 +82,8 @@ class ProfilerCache(deviceName: String) {
     case None =>
   }
 
+  private var unsyncedSamples = 0
+
   /** Check for prior profiling data for a circuit in the cache based on the circuit's hash. */
   def get(circuitHashCode: String): Option[ProfileSample] = {
     cache.get(circuitHashCode)
@@ -91,21 +93,29 @@ class ProfilerCache(deviceName: String) {
   def put(sample: ProfileSample): Unit = {
     // Add circuit to online database.
     cache(sample.kernelCircuitHash) = sample
-    // Write circuit to file (this should probably not be done on each `put`, but rather after a `sync`
-    cacheFile match {
-      case Some(file) =>
-        /** A saver object for the chosen serialization approach. */
-        val saver = checkpointerType match {
-          case Hdf5CheckpointerType => new Hdf5ObjectSaver(file.getPath)
-          case JavaCheckpointerType => new JavaObjectSaver(file.getPath)
-        }
-        try {
-          saver.writeInt("majorVersion", majorVersion)
-          saver.writeInt("minorVersion", minorVersion)
-          saver.writeObjectArray("profileSamples", cache.values.toArray)
-        } finally
-          saver.close()
-      case None =>
+    unsyncedSamples += 1
+  }
+
+  /** Rewrite the cache file if new samples have been added. */
+  def sync(): Unit = {
+    if (unsyncedSamples > 0) {
+      // Write circuit to file
+      cacheFile match {
+        case Some(file) =>
+          /** A saver object for the chosen serialization approach. */
+          val saver = checkpointerType match {
+            case Hdf5CheckpointerType => new Hdf5ObjectSaver(file.getPath)
+            case JavaCheckpointerType => new JavaObjectSaver(file.getPath)
+          }
+          try {
+            saver.writeInt("majorVersion", majorVersion)
+            saver.writeInt("minorVersion", minorVersion)
+            saver.writeObjectArray("profileSamples", cache.values.toArray)
+          } finally
+            saver.close()
+        case None =>
+      }
+      unsyncedSamples = 0
     }
   }
 }

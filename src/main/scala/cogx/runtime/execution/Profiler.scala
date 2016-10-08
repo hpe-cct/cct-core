@@ -108,7 +108,7 @@ class Profiler(platform: OpenCLPlatform, mode: AllocationMode, actorSystem: Acto
         else {
           Profiler.get(deviceName, circuitKey) match {
             case Some(cachedSample) =>
-              if (cachedSample.runSteps >= runSteps ||
+              if (cachedSample.runSteps > runSteps ||
                   cachedSample.runSteps == runSteps && cachedSample.warmupSteps >= warmupSteps)
                 Some(cachedSample)
               else
@@ -143,10 +143,12 @@ class Profiler(platform: OpenCLPlatform, mode: AllocationMode, actorSystem: Acto
     val start = System.nanoTime()
     // We always need to print something, since profiling can stretch the 1st-time compile to minutes
     // and we don't want the user to think the compiler is wedged.
-    print(s"Profiling $experimentName: ")
+    val resultTypesString = resultTypes.mkString(", ")
+    print(s"Profiling $experimentName -> $resultTypesString ")
 
     // For each opcode, get a profiling 'sample' of its execution time
     val variantProfileSamples = Array.tabulate(numVariants) { i =>
+      print(".")
       profile(inputFieldTypes, variantGenerator(i))
     }
     // Pick the fastest variant
@@ -175,12 +177,14 @@ class Profiler(platform: OpenCLPlatform, mode: AllocationMode, actorSystem: Acto
         val selected = if (i == bestVariant) "* " else "  "
         printSample(variantProfileSamples(i), selected, variantNames(i))
       }
-      val durationUsec = (System.nanoTime() - start) / 1000
-      println(s"Variant selection took $durationUsec uSec.")
+      val durationUsec = (System.nanoTime() - start).toDouble / 1e9
+      println(f"Variant selection took $durationUsec%.3f sec.")
       println
     }
     else
       printSample(variantProfileSamples(bestVariant), "", variantNames(bestVariant))
+    // Update file so other apps on the same node see the profiled kernel (still a racy proposition currently).
+    Profiler.sync(deviceName)
 
     bestVariant
   }
@@ -294,5 +298,13 @@ object Profiler {
   def put(deviceName: String, sample: ProfileSample): Unit = synchronized {
     val cache = caches.getOrElseUpdate(deviceName, new ProfilerCache(deviceName))
     cache.put(sample)
+  }
+
+  /** Rewrite the cache file if new samples have been added. */
+  def sync(deviceName: String): Unit = synchronized {
+    val cache = caches.get(deviceName) match {
+      case Some(existingCache) => existingCache.sync()
+      case None =>
+    }
   }
 }

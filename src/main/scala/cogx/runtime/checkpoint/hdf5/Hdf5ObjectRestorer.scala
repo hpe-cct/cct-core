@@ -17,7 +17,6 @@
 package cogx.runtime.checkpoint.hdf5
 
 import cogx.platform.checkpoint.{RestoreFactory, ObjectRestorer}
-import hdfloader.Hdf5NativesLoader
 import ncsa.hdf.hdf5lib.H5._
 import ncsa.hdf.hdf5lib.HDF5Constants._
 
