@@ -111,7 +111,7 @@ object Cog {
   /** Directs the profiler to nuke the profiler cache. */
   var deleteProfilerCache = setBoolean("deleteProfilerCache", default=false)
   /** Release version, is not automatically discernible from the release jar manifest */
-  val defaultReleaseVersion = "5.0.0-SNAPSHOT"
+  val defaultReleaseVersion = "5.0.0"
 
   /** return the release version as a String.  When this is invoked out of the libcog jar,
     * the getImplementationVersion will return the value from the file ./META-INF/MANIFEST.MF
