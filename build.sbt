@@ -6,7 +6,7 @@ organizationName := "Hewlett Packard Labs"
 
 organizationHomepage := Some(url("http://www.labs.hpe.com"))
 
-version := "5.0.0"
+version := "5.0.1"
 
 organization := "com.hpe.cct"
 

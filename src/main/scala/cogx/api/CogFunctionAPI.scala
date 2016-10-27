@@ -2458,6 +2458,12 @@ trait CogFunctionAPI extends SemanticError with ImplicitConversions {
       UnaryOperator(VectorFieldToColorFieldOp, field)
   }
 
+  /** Is the tensor of the field too big to hold in a GPUOperator '_tensorVar'? */
+  def isBigTensorField(f: FieldType): Boolean = cogx.compiler.codegenerator.common.FieldPolicies.isBigTensorField(f)
+
+  /** Is the tensor of the field small enough to hold in a GPUOperator '_tensorVar'? */
+  def isSmallTensorField(f: FieldType): Boolean = cogx.compiler.codegenerator.common.FieldPolicies.isSmallTensorField(f)
+
   /** User mechanism for marking a field as "probed," optionally supplying a
     * name for the field.
     *

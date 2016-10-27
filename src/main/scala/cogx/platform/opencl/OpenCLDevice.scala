@@ -187,7 +187,7 @@ class OpenCLDevice private[opencl](val clDevice: CLDevice,
   }
 
   /** The number of compute units ("streaming multiprocessors" in the NVIDIA parlance. */
-  def maxMemComputeUnits: Long = {
+  def maxComputeUnits: Long = {
     clDevice.getMaxComputeUnits
   }
 
